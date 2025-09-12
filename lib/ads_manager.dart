@@ -1,7 +1,5 @@
 // ads_manager.dart
-// Enhanced AdsManager with AppOpen, Banner, Interstitial, Rewarded, Rewarded Interstitial,
-// Native ads and multiple instance support.
-// Wraps google_mobile_ads for Android + iOS.
+// Updated: One-call initialize loads all configured ads automatically.
 
 import 'dart:async';
 import 'package:flutter/foundation.dart';
@@ -61,16 +59,32 @@ class AdsManager {
   static final Map<String, AdsLoadState> _rewardedInterstitialStates = {};
 
   static AppOpenAd? _appOpenAd;
-  static AdsLoadState _appOpenState = AdsLoadState.idle;
   static DateTime? _appOpenLoadTime;
+  static AdsLoadState _appOpenState = AdsLoadState.idle;
 
   /// ---------------- INIT ----------------
   static Future<void> initialize({
     AdsEnvironment env = AdsEnvironment.production,
     List<String>? testDeviceIds,
+    AdUnitIds? banner,
+    AdUnitIds? interstitial,
+    AdUnitIds? rewarded,
+    AdUnitIds? native,
+    AdUnitIds? appOpen,
+    AdUnitIds? rewardedInterstitial,
   }) async {
     if (_initialized) return;
     _env = env;
+
+    // Set Ad Unit IDs
+    setAdUnitIds(
+      banner: banner,
+      interstitial: interstitial,
+      rewarded: rewarded,
+      native: native,
+      appOpen: appOpen,
+      rewardedInterstitial: rewardedInterstitial,
+    );
 
     final cfg = RequestConfiguration(
       testDeviceIds: (env == AdsEnvironment.testing) ? (testDeviceIds ?? <String>[]) : null,
@@ -78,6 +92,26 @@ class AdsManager {
     await MobileAds.instance.updateRequestConfiguration(cfg);
     await MobileAds.instance.initialize();
     _initialized = true;
+
+    // Automatically load ads if IDs are set
+    if (_resolve(bannerIds) != null) {
+      await loadBanner(key: "default_banner", size: AdSize.banner);
+    }
+    if (_resolve(interstitialIds) != null) {
+      await loadInterstitial("default_interstitial");
+    }
+    if (_resolve(rewardedIds) != null) {
+      await loadRewarded("default_rewarded");
+    }
+    if (_resolve(nativeIds) != null) {
+      await loadNative("default_native");
+    }
+    if (_resolve(appOpenIds) != null) {
+      await loadAppOpen();
+    }
+    if (_resolve(rewardedInterstitialIds) != null) {
+      await loadRewardedInterstitial("default_rewarded_interstitial");
+    }
   }
 
   static void setAdUnitIds({
@@ -204,6 +238,57 @@ class AdsManager {
       return true;
     }
     return false;
+  }
+
+  /// ---------------- REWARDED INTERSTITIAL ----------------
+  static Future<void> loadRewardedInterstitial(String key, {String? adUnitId}) async {
+    final resolved = _resolve(rewardedInterstitialIds, override: adUnitId);
+    if (resolved == null) return;
+    _rewardedInterstitialStates[key] = AdsLoadState.loading;
+
+    RewardedInterstitialAd.load(
+      adUnitId: resolved,
+      request: const AdRequest(),
+      rewardedInterstitialAdLoadCallback: RewardedInterstitialAdLoadCallback(
+        onAdLoaded: (ad) {
+          _rewardedInterstitials[key] = ad;
+          _rewardedInterstitialStates[key] = AdsLoadState.loaded;
+        },
+        onAdFailedToLoad: (_) => _rewardedInterstitialStates[key] = AdsLoadState.failed,
+      ),
+    );
+  }
+
+  static bool showRewardedInterstitial(String key, {required void Function(RewardItem) onEarned}) {
+    if (_rewardedInterstitials.containsKey(key)) {
+      _rewardedInterstitials[key]!.show(onUserEarnedReward: (_, reward) => onEarned(reward));
+      return true;
+    }
+    return false;
+  }
+
+  /// ---------------- NATIVE ----------------
+  static Future<void> loadNative(String key, {String? adUnitId}) async {
+    final resolved = _resolve(nativeIds, override: adUnitId);
+    if (resolved == null) return;
+    _nativeStates[key] = AdsLoadState.loading;
+
+    final ad = NativeAd(
+      adUnitId: resolved,
+      factoryId: "defaultFactory", // must register in platform side
+      request: const AdRequest(),
+      listener: NativeAdListener(
+        onAdLoaded: (a) {
+          _natives[key] = a as NativeAd;
+          _nativeStates[key] = AdsLoadState.loaded;
+        },
+        onAdFailedToLoad: (a, e) {
+          a.dispose();
+          _nativeStates[key] = AdsLoadState.failed;
+        },
+      ),
+    );
+    await ad.load();
   }
 
   /// ---------------- APP OPEN ----------------
