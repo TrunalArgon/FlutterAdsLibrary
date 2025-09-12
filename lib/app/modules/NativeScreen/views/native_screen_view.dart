@@ -1,6 +1,6 @@
+import 'package:ads_library/ads_manager.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
-import '../../../../ads_manager.dart';
 import '../controllers/native_screen_controller.dart';
 
 class NativeScreenView extends GetView {
@@ -14,7 +14,8 @@ class NativeScreenView extends GetView {
           body: Center(
             child: Column(
               children: [
-                ],
+                AdsManager.showNativeTemplate('native2', templateType: TemplateType.medium, height: 200),
+              ],
             ),
           ),
         );

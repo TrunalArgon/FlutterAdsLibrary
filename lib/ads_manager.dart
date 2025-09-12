@@ -93,7 +93,6 @@ class AdsManager {
     if (rewardedInterstitialIds != null) await _loadRewardedInterstitial('default');
     if (interstitialIds != null) await _loadInterstitial('default');
     if (rewardedIds != null) await _loadRewarded('default');
-    // if (appOpenIds != null) await loadAppOpenAd(); // 👈 already correct
   }
 
   /// -------------------- HELPERS --------------------
@@ -355,6 +354,28 @@ class AdsManager {
     return widget;
   }
 
+  static Widget showNativeTemplate(
+      String key, {
+        String? adUnitId,
+        TemplateType templateType = TemplateType.medium,
+        double height = 200,
+      }) {
+    _nativeAds[key]?.dispose();
+    _nativeWidgets.remove(key);
+
+    final resolved = _resolveNative(adUnitId);
+    if (resolved == null) return const SizedBox.shrink();
+
+    final widget = _NativeTemplateAdWidget(
+      adUnitId: resolved,
+      adKey: key,
+      templateType: templateType,
+      height: height,
+    );
+    _nativeWidgets[key] = widget;
+    return widget;
+  }
+
   /// -------------------- REWARDED INTERSTITIAL WITH CALLBACKS --------------------
   static void showRewardedInterstitialWithCallbacks({
     String key = 'default',
@@ -367,7 +388,6 @@ class AdsManager {
     final ad = _rewardedInterstitials[key];
 
     if (ad == null) {
-      // Load & show immediately when available
       final resolved = _resolveRewardedInterstitial(adUnitId);
       if (resolved == null) {
         onFailed();
@@ -390,7 +410,7 @@ class AdsManager {
                 _rewardedInterstitials[key] = null;
                 rewardedInterstitialStates[key] = AdsLoadState.idle;
                 _isShowingVideoAd = false;
-                _loadRewardedInterstitial(key); // preload next
+                _loadRewardedInterstitial(key);
                 onDismissed();
               },
               onAdFailedToShowFullScreenContent: (ad, error) {
@@ -414,7 +434,6 @@ class AdsManager {
         ),
       );
     } else {
-      // Already preloaded
       onLoaded();
       ad.show(onUserEarnedReward: (ad, reward) => onReward());
     }
@@ -547,6 +566,72 @@ class _NativeAdWidgetState extends State<_NativeAdWidget> {
   }
 }
 
+/// -------------------- NATIVE TEMPLATE AD WIDGET --------------------
+enum TemplateType { small, medium, custom }
+
+class _NativeTemplateAdWidget extends StatefulWidget {
+  final String adUnitId;
+  final String adKey;
+  final TemplateType templateType;
+  final double height;
+
+  const _NativeTemplateAdWidget({
+    required this.adUnitId,
+    required this.adKey,
+    this.templateType = TemplateType.medium,
+    this.height = 200,
+    super.key,
+  });
+
+  @override
+  State<_NativeTemplateAdWidget> createState() => _NativeTemplateAdWidgetState();
+}
+
+class _NativeTemplateAdWidgetState extends State<_NativeTemplateAdWidget> {
+  NativeAd? _nativeAd;
+  AdsLoadState _loadState = AdsLoadState.idle;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadNativeTemplate();
+  }
+
+  void _loadNativeTemplate() {
+    _nativeAd = NativeAd(
+      adUnitId: widget.adUnitId,
+      factoryId: widget.templateType.name, // "small" | "medium" | "custom"
+      request: const AdRequest(),
+      listener: NativeAdListener(
+        onAdLoaded: (_) => setState(() => _loadState = AdsLoadState.loaded),
+        onAdFailedToLoad: (ad, _) {
+          ad.dispose();
+          setState(() => _loadState = AdsLoadState.failed);
+        },
+      ),
+    );
+    _nativeAd!.load();
+    AdsManager._nativeAds[widget.adKey] = _nativeAd;
+    AdsManager.nativeStates[widget.adKey] = AdsLoadState.loading;
+  }
+
+  @override
+  void dispose() {
+    _nativeAd?.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loadState != AdsLoadState.loaded || _nativeAd == null) return const SizedBox.shrink();
+    return SizedBox(
+      height: widget.height,
+      child: AdWidget(ad: _nativeAd!),
+    );
+  }
+}
+
+/// -------------------- APP LIFECYCLE HANDLER --------------------
 class AdsLifecycleHandler extends WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
