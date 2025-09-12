@@ -1,12 +1,8 @@
-// ads_manager.dart
-// Updated: One-call initialize loads all configured ads automatically.
-
-import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 
-/// Simple holder for platform ad unit ids
+/// -------------------- AD UNIT IDS --------------------
 class AdUnitIds {
   final String? android;
   final String? ios;
@@ -22,333 +18,540 @@ class AdUnitIds {
 enum AdsEnvironment { production, testing }
 enum AdsLoadState { idle, loading, loaded, failed }
 
-typedef AdEventCallback = void Function(String key);
-typedef AdErrorCallback = void Function(String key, LoadAdError error);
-
+/// -------------------- ADS MANAGER --------------------
 class AdsManager {
   AdsManager._internal();
-  static final AdsManager _singleton = AdsManager._internal();
-  static AdsManager get instance => _singleton;
+  static final AdsManager instance = AdsManager._internal();
 
   static bool _initialized = false;
   static AdsEnvironment _env = AdsEnvironment.production;
 
-  // Default AdUnit sets
   static AdUnitIds? bannerIds;
   static AdUnitIds? interstitialIds;
   static AdUnitIds? rewardedIds;
-  static AdUnitIds? nativeIds;
-  static AdUnitIds? appOpenIds;
   static AdUnitIds? rewardedInterstitialIds;
+  static AdUnitIds? appOpenIds;
+  static AdUnitIds? nativeIds;
 
-  // Storages
+  /// -------------------- BANNERS --------------------
   static final Map<String, BannerAd> _banners = {};
+  static final Map<String, AdsLoadState> bannerStates = {};
   static final Map<String, Widget> _bannerWidgets = {};
-  static final Map<String, AdsLoadState> _bannerStates = {};
 
-  static final Map<String, InterstitialAd> _interstitials = {};
-  static final Map<String, AdsLoadState> _interstitialStates = {};
+  /// -------------------- INTERSTITIAL --------------------
+  static final Map<String, InterstitialAd?> _interstitials = {};
+  static final Map<String, AdsLoadState> interstitialStates = {};
+  static bool _isShowingVideoAd = false;
 
-  static final Map<String, NativeAd> _natives = {};
-  static final Map<String, AdsLoadState> _nativeStates = {};
+  /// -------------------- REWARDED --------------------
+  static final Map<String, RewardedAd?> _rewardedAds = {};
+  static final Map<String, AdsLoadState> rewardedStates = {};
 
-  static final Map<String, RewardedAd> _rewardedAds = {};
-  static final Map<String, AdsLoadState> _rewardedStates = {};
+  /// -------------------- REWARDED INTERSTITIAL --------------------
+  static final Map<String, RewardedInterstitialAd?> _rewardedInterstitials = {};
+  static final Map<String, AdsLoadState> rewardedInterstitialStates = {};
 
-  static final Map<String, RewardedInterstitialAd> _rewardedInterstitials = {};
-  static final Map<String, AdsLoadState> _rewardedInterstitialStates = {};
-
+  /// -------------------- APP OPEN --------------------
   static AppOpenAd? _appOpenAd;
-  static DateTime? _appOpenLoadTime;
-  static AdsLoadState _appOpenState = AdsLoadState.idle;
+  static AdsLoadState appOpenState = AdsLoadState.idle;
 
-  /// ---------------- INIT ----------------
+  /// -------------------- NATIVE --------------------
+  static final Map<String, NativeAd?> _nativeAds = {};
+  static final Map<String, AdsLoadState> nativeStates = {};
+  static final Map<String, Widget> _nativeWidgets = {};
+
+  /// -------------------- INITIALIZE --------------------
   static Future<void> initialize({
     AdsEnvironment env = AdsEnvironment.production,
     List<String>? testDeviceIds,
     AdUnitIds? banner,
     AdUnitIds? interstitial,
     AdUnitIds? rewarded,
-    AdUnitIds? native,
-    AdUnitIds? appOpen,
     AdUnitIds? rewardedInterstitial,
+    AdUnitIds? appOpen,
+    AdUnitIds? native,
   }) async {
     if (_initialized) return;
-    _env = env;
 
-    // Set Ad Unit IDs
-    setAdUnitIds(
-      banner: banner,
-      interstitial: interstitial,
-      rewarded: rewarded,
-      native: native,
-      appOpen: appOpen,
-      rewardedInterstitial: rewardedInterstitial,
-    );
+    _env = env;
+    bannerIds = banner ?? bannerIds;
+    interstitialIds = interstitial ?? interstitialIds;
+    rewardedIds = rewarded ?? rewardedIds;
+    rewardedInterstitialIds = rewardedInterstitial ?? rewardedInterstitialIds;
+    appOpenIds = appOpen ?? appOpenIds;
+    nativeIds = native ?? nativeIds;
 
     final cfg = RequestConfiguration(
-      testDeviceIds: (env == AdsEnvironment.testing) ? (testDeviceIds ?? <String>[]) : null,
+      testDeviceIds: env == AdsEnvironment.testing ? (testDeviceIds ?? []) : null,
     );
+
     await MobileAds.instance.updateRequestConfiguration(cfg);
     await MobileAds.instance.initialize();
     _initialized = true;
 
-    // Automatically load ads if IDs are set
-    if (_resolve(bannerIds) != null) {
-      await loadBanner(key: "default_banner", size: AdSize.banner);
-    }
-    if (_resolve(interstitialIds) != null) {
-      await loadInterstitial("default_interstitial");
-    }
-    if (_resolve(rewardedIds) != null) {
-      await loadRewarded("default_rewarded");
-    }
-    if (_resolve(nativeIds) != null) {
-      await loadNative("default_native");
-    }
-    if (_resolve(appOpenIds) != null) {
-      await loadAppOpen();
-    }
-    if (_resolve(rewardedInterstitialIds) != null) {
-      await loadRewardedInterstitial("default_rewarded_interstitial");
-    }
+    // Preload defaults
+    if (rewardedInterstitialIds != null) await _loadRewardedInterstitial('default');
+    if (interstitialIds != null) await _loadInterstitial('default');
+    if (rewardedIds != null) await _loadRewarded('default');
+    // if (appOpenIds != null) await loadAppOpenAd(); // 👈 already correct
   }
 
-  static void setAdUnitIds({
-    AdUnitIds? banner,
-    AdUnitIds? interstitial,
-    AdUnitIds? rewarded,
-    AdUnitIds? native,
-    AdUnitIds? appOpen,
-    AdUnitIds? rewardedInterstitial,
-  }) {
-    bannerIds = banner ?? bannerIds;
-    interstitialIds = interstitial ?? interstitialIds;
-    rewardedIds = rewarded ?? rewardedIds;
-    nativeIds = native ?? nativeIds;
-    appOpenIds = appOpen ?? appOpenIds;
-    rewardedInterstitialIds = rewardedInterstitial ?? rewardedInterstitialIds;
-  }
+  /// -------------------- HELPERS --------------------
+  static String? _resolveBanner(String? adUnitId) =>
+      adUnitId ?? bannerIds?.forTargetPlatform(defaultTargetPlatform);
 
-  static String? _resolve(AdUnitIds? ids, {String? override}) {
-    if (override != null) return override;
-    if (ids == null) return null;
-    return ids.forTargetPlatform(defaultTargetPlatform);
-  }
+  static String? _resolveInterstitial(String? adUnitId) =>
+      adUnitId ?? interstitialIds?.forTargetPlatform(defaultTargetPlatform);
 
-  /// ---------------- BANNER ----------------
-  static Future<void> loadBanner({
-    required String key,
-    required AdSize size,
-    String? adUnitId,
-  }) async {
-    final resolved = _resolve(bannerIds, override: adUnitId);
-    if (resolved == null) return;
-    _bannerStates[key] = AdsLoadState.loading;
+  static String? _resolveRewarded(String? adUnitId) =>
+      adUnitId ?? rewardedIds?.forTargetPlatform(defaultTargetPlatform);
 
-    final ad = BannerAd(
-      adUnitId: resolved,
-      size: size,
-      request: const AdRequest(),
-      listener: BannerAdListener(
-        onAdLoaded: (a) {
-          _banners[key] = a as BannerAd;
-          _bannerWidgets[key] = SizedBox(
-            width: a.size.width.toDouble(),
-            height: a.size.height.toDouble(),
-            child: AdWidget(ad: a),
-          );
-          _bannerStates[key] = AdsLoadState.loaded;
-        },
-        onAdFailedToLoad: (a, e) {
-          a.dispose();
-          _bannerStates[key] = AdsLoadState.failed;
-        },
-      ),
-    );
-    await ad.load();
-  }
+  static String? _resolveRewardedInterstitial(String? adUnitId) =>
+      adUnitId ?? rewardedInterstitialIds?.forTargetPlatform(defaultTargetPlatform);
 
-  static Widget bannerWidget(String key) =>
-      _bannerWidgets[key] ?? const SizedBox.shrink();
+  static String? _resolveAppOpen(String? adUnitId) =>
+      adUnitId ?? appOpenIds?.forTargetPlatform(defaultTargetPlatform);
 
-  static void disposeBanner(String key) {
+  static String? _resolveNative(String? adUnitId) =>
+      adUnitId ?? nativeIds?.forTargetPlatform(defaultTargetPlatform);
+
+  /// -------------------- BANNER --------------------
+  static Widget showBanner(String key, {String? adUnitId}) {
     _banners[key]?.dispose();
-    _banners.remove(key);
     _bannerWidgets.remove(key);
-    _bannerStates.remove(key);
+
+    final resolved = _resolveBanner(adUnitId);
+    if (resolved == null) return const SizedBox.shrink();
+
+    final widget = _AdaptiveBannerWidget(bannerKey: key, adUnitId: resolved);
+    _bannerWidgets[key] = widget;
+    return widget;
   }
 
-  /// ---------------- INTERSTITIAL ----------------
-  static Future<void> loadInterstitial(String key, {String? adUnitId}) async {
-    final resolved = _resolve(interstitialIds, override: adUnitId);
+  /// -------------------- INTERSTITIAL --------------------
+  static Future<void> _loadInterstitial(String key, {String? adUnitId}) async {
+    final resolved = _resolveInterstitial(adUnitId);
     if (resolved == null) return;
-    _interstitialStates[key] = AdsLoadState.loading;
 
+    interstitialStates[key] = AdsLoadState.loading;
     InterstitialAd.load(
       adUnitId: resolved,
       request: const AdRequest(),
       adLoadCallback: InterstitialAdLoadCallback(
         onAdLoaded: (ad) {
           _interstitials[key] = ad;
-          _interstitialStates[key] = AdsLoadState.loaded;
-          ad.fullScreenContentCallback = FullScreenContentCallback(
-            onAdDismissedFullScreenContent: (a) {
-              a.dispose();
-              _interstitials.remove(key);
-              _interstitialStates[key] = AdsLoadState.idle;
-            },
-          );
+          interstitialStates[key] = AdsLoadState.loaded;
         },
-        onAdFailedToLoad: (_) => _interstitialStates[key] = AdsLoadState.failed,
+        onAdFailedToLoad: (error) {
+          _interstitials[key] = null;
+          interstitialStates[key] = AdsLoadState.failed;
+        },
       ),
     );
   }
 
-  static bool showInterstitial(String key) {
-    if (_interstitials.containsKey(key)) {
-      _interstitials[key]!.show();
-      return true;
+  static void showInterstitial(String key,
+      {String? adUnitId, VoidCallback? onDismissed}) {
+    final ad = _interstitials[key];
+    if (ad == null) {
+      _loadInterstitial(key, adUnitId: adUnitId);
+      return;
     }
-    return false;
+
+    _isShowingVideoAd = true;
+    ad.fullScreenContentCallback = FullScreenContentCallback(
+      onAdDismissedFullScreenContent: (ad) {
+        ad.dispose();
+        _interstitials[key] = null;
+        interstitialStates[key] = AdsLoadState.idle;
+        _isShowingVideoAd = false;
+        _loadInterstitial(key);
+        onDismissed?.call();
+      },
+      onAdFailedToShowFullScreenContent: (ad, error) {
+        ad.dispose();
+        _interstitials[key] = null;
+        interstitialStates[key] = AdsLoadState.idle;
+        _isShowingVideoAd = false;
+        _loadInterstitial(key);
+        onDismissed?.call();
+      },
+    );
+
+    ad.show();
+    _interstitials[key] = null;
   }
 
-  /// ---------------- REWARDED ----------------
-  static Future<void> loadRewarded(String key, {String? adUnitId}) async {
-    final resolved = _resolve(rewardedIds, override: adUnitId);
+  /// -------------------- REWARDED --------------------
+  static Future<void> _loadRewarded(String key, {String? adUnitId}) async {
+    final resolved = _resolveRewarded(adUnitId);
     if (resolved == null) return;
-    _rewardedStates[key] = AdsLoadState.loading;
 
+    rewardedStates[key] = AdsLoadState.loading;
     RewardedAd.load(
       adUnitId: resolved,
       request: const AdRequest(),
       rewardedAdLoadCallback: RewardedAdLoadCallback(
         onAdLoaded: (ad) {
           _rewardedAds[key] = ad;
-          _rewardedStates[key] = AdsLoadState.loaded;
+          rewardedStates[key] = AdsLoadState.loaded;
         },
-        onAdFailedToLoad: (_) => _rewardedStates[key] = AdsLoadState.failed,
+        onAdFailedToLoad: (error) {
+          _rewardedAds[key] = null;
+          rewardedStates[key] = AdsLoadState.failed;
+        },
       ),
     );
   }
 
-  static bool showRewarded(String key, {required void Function(RewardItem) onEarned}) {
-    if (_rewardedAds.containsKey(key)) {
-      _rewardedAds[key]!.show(onUserEarnedReward: (_, reward) => onEarned(reward));
-      return true;
+  static void showRewarded(String key,
+      {String? adUnitId, required VoidCallback onReward, VoidCallback? onDismissed}) {
+    final ad = _rewardedAds[key];
+    if (ad == null) {
+      _loadRewarded(key, adUnitId: adUnitId);
+      return;
     }
-    return false;
+
+    _isShowingVideoAd = true;
+    ad.fullScreenContentCallback = FullScreenContentCallback(
+      onAdDismissedFullScreenContent: (ad) {
+        ad.dispose();
+        _rewardedAds[key] = null;
+        rewardedStates[key] = AdsLoadState.idle;
+        _isShowingVideoAd = false;
+        _loadRewarded(key);
+        onDismissed?.call();
+      },
+      onAdFailedToShowFullScreenContent: (ad, error) {
+        ad.dispose();
+        _rewardedAds[key] = null;
+        rewardedStates[key] = AdsLoadState.idle;
+        _isShowingVideoAd = false;
+        _loadRewarded(key);
+        onDismissed?.call();
+      },
+    );
+
+    ad.show(onUserEarnedReward: (ad, reward) => onReward());
+    _rewardedAds[key] = null;
   }
 
-  /// ---------------- REWARDED INTERSTITIAL ----------------
-  static Future<void> loadRewardedInterstitial(String key, {String? adUnitId}) async {
-    final resolved = _resolve(rewardedInterstitialIds, override: adUnitId);
+  /// -------------------- REWARDED INTERSTITIAL --------------------
+  static Future<void> _loadRewardedInterstitial(String key, {String? adUnitId}) async {
+    final resolved = _resolveRewardedInterstitial(adUnitId);
     if (resolved == null) return;
-    _rewardedInterstitialStates[key] = AdsLoadState.loading;
 
+    rewardedInterstitialStates[key] = AdsLoadState.loading;
     RewardedInterstitialAd.load(
       adUnitId: resolved,
       request: const AdRequest(),
       rewardedInterstitialAdLoadCallback: RewardedInterstitialAdLoadCallback(
         onAdLoaded: (ad) {
           _rewardedInterstitials[key] = ad;
-          _rewardedInterstitialStates[key] = AdsLoadState.loaded;
+          rewardedInterstitialStates[key] = AdsLoadState.loaded;
         },
-        onAdFailedToLoad: (_) => _rewardedInterstitialStates[key] = AdsLoadState.failed,
+        onAdFailedToLoad: (error) {
+          _rewardedInterstitials[key] = null;
+          rewardedInterstitialStates[key] = AdsLoadState.failed;
+        },
       ),
     );
   }
 
-  static bool showRewardedInterstitial(String key, {required void Function(RewardItem) onEarned}) {
-    if (_rewardedInterstitials.containsKey(key)) {
-      _rewardedInterstitials[key]!.show(onUserEarnedReward: (_, reward) => onEarned(reward));
-      return true;
+  static void showRewardedInterstitial(String key,
+      {String? adUnitId, required VoidCallback onReward, VoidCallback? onDismissed}) {
+    final ad = _rewardedInterstitials[key];
+    if (ad == null) {
+      _loadRewardedInterstitial(key, adUnitId: adUnitId);
+      return;
     }
-    return false;
-  }
 
-  /// ---------------- NATIVE ----------------
-  static Future<void> loadNative(String key, {String? adUnitId}) async {
-    final resolved = _resolve(nativeIds, override: adUnitId);
-    if (resolved == null) return;
-    _nativeStates[key] = AdsLoadState.loading;
-
-    final ad = NativeAd(
-      adUnitId: resolved,
-      factoryId: "defaultFactory", // must register in platform side
-      request: const AdRequest(),
-      listener: NativeAdListener(
-        onAdLoaded: (a) {
-          _natives[key] = a as NativeAd;
-          _nativeStates[key] = AdsLoadState.loaded;
-        },
-        onAdFailedToLoad: (a, e) {
-          a.dispose();
-          _nativeStates[key] = AdsLoadState.failed;
-        },
-      ),
+    _isShowingVideoAd = true;
+    ad.fullScreenContentCallback = FullScreenContentCallback(
+      onAdDismissedFullScreenContent: (ad) {
+        ad.dispose();
+        _rewardedInterstitials[key] = null;
+        rewardedInterstitialStates[key] = AdsLoadState.idle;
+        _isShowingVideoAd = false;
+        _loadRewardedInterstitial(key);
+        onDismissed?.call();
+      },
+      onAdFailedToShowFullScreenContent: (ad, error) {
+        ad.dispose();
+        _rewardedInterstitials[key] = null;
+        rewardedInterstitialStates[key] = AdsLoadState.idle;
+        _isShowingVideoAd = false;
+        _loadRewardedInterstitial(key);
+        onDismissed?.call();
+      },
     );
-    await ad.load();
+
+    ad.show(onUserEarnedReward: (ad, reward) => onReward());
+    _rewardedInterstitials[key] = null;
   }
 
-  /// ---------------- APP OPEN ----------------
-  static Future<void> loadAppOpen({String? adUnitId}) async {
-    final resolved = _resolve(appOpenIds, override: adUnitId);
+  /// -------------------- APP OPEN --------------------
+  static Future<void> loadAppOpenAd({String? adUnitId}) async {
+    if (_isShowingVideoAd) return;
+    final resolved = _resolveAppOpen(adUnitId);
     if (resolved == null) return;
-    _appOpenState = AdsLoadState.loading;
 
+    appOpenState = AdsLoadState.loading;
     AppOpenAd.load(
       adUnitId: resolved,
       request: const AdRequest(),
       adLoadCallback: AppOpenAdLoadCallback(
         onAdLoaded: (ad) {
           _appOpenAd = ad;
-          _appOpenLoadTime = DateTime.now();
-          _appOpenState = AdsLoadState.loaded;
+          appOpenState = AdsLoadState.loaded;
         },
-        onAdFailedToLoad: (_) => _appOpenState = AdsLoadState.failed,
+        onAdFailedToLoad: (error) {
+          _appOpenAd = null;
+          appOpenState = AdsLoadState.failed;
+        },
       ),
     );
   }
 
-  static bool showAppOpen() {
-    if (_appOpenAd == null) return false;
-    if (_appOpenLoadTime != null &&
-        DateTime.now().difference(_appOpenLoadTime!).inHours >= 6) {
-      _appOpenAd!.dispose();
-      _appOpenAd = null;
-      return false;
-    }
-    _appOpenAd!.show();
-    return true;
+  static void showAppOpenAd() {
+    if (_isShowingVideoAd) return;
+    final ad = _appOpenAd;
+    if (ad == null) return;
+
+    ad.fullScreenContentCallback = FullScreenContentCallback(
+      onAdDismissedFullScreenContent: (ad) {
+        ad.dispose();
+        _appOpenAd = null;
+        appOpenState = AdsLoadState.idle;
+        loadAppOpenAd();
+      },
+      onAdFailedToShowFullScreenContent: (ad, error) {
+        ad.dispose();
+        _appOpenAd = null;
+        appOpenState = AdsLoadState.idle;
+      },
+    );
+
+    ad.show();
+    _appOpenAd = null;
   }
 
-  /// ---------------- CLEANUP ----------------
-  static void disposeAll() {
-    _banners.forEach((_, v) => v.dispose());
-    _banners.clear();
-    _bannerWidgets.clear();
-    _bannerStates.clear();
+  /// -------------------- NATIVE --------------------
+  static Widget showNative(String key,
+      {String? adUnitId, double height = 100, String factoryId = 'listTile'}) {
+    _nativeAds[key]?.dispose();
+    _nativeWidgets.remove(key);
 
-    _interstitials.forEach((_, v) => v.dispose());
-    _interstitials.clear();
-    _interstitialStates.clear();
+    final resolved = _resolveNative(adUnitId);
+    if (resolved == null) return const SizedBox.shrink();
 
-    _rewardedAds.forEach((_, v) => v.dispose());
-    _rewardedAds.clear();
-    _rewardedStates.clear();
+    final widget = _NativeAdWidget(
+      adUnitId: resolved,
+      adKey: key,
+      height: height,
+      factoryId: factoryId,
+    );
+    _nativeWidgets[key] = widget;
+    return widget;
+  }
 
-    _natives.forEach((_, v) => v.dispose());
-    _natives.clear();
-    _nativeStates.clear();
+  /// -------------------- REWARDED INTERSTITIAL WITH CALLBACKS --------------------
+  static void showRewardedInterstitialWithCallbacks({
+    String key = 'default',
+    String? adUnitId,
+    required VoidCallback onLoaded,
+    required VoidCallback onReward,
+    required VoidCallback onDismissed,
+    required VoidCallback onFailed,
+  }) {
+    final ad = _rewardedInterstitials[key];
 
-    _rewardedInterstitials.forEach((_, v) => v.dispose());
-    _rewardedInterstitials.clear();
-    _rewardedInterstitialStates.clear();
+    if (ad == null) {
+      // Load & show immediately when available
+      final resolved = _resolveRewardedInterstitial(adUnitId);
+      if (resolved == null) {
+        onFailed();
+        return;
+      }
 
-    _appOpenAd?.dispose();
-    _appOpenAd = null;
-    _appOpenLoadTime = null;
-    _appOpenState = AdsLoadState.idle;
+      RewardedInterstitialAd.load(
+        adUnitId: resolved,
+        request: const AdRequest(),
+        rewardedInterstitialAdLoadCallback: RewardedInterstitialAdLoadCallback(
+          onAdLoaded: (ad) {
+            _rewardedInterstitials[key] = ad;
+            rewardedInterstitialStates[key] = AdsLoadState.loaded;
+            onLoaded();
+
+            _isShowingVideoAd = true;
+            ad.fullScreenContentCallback = FullScreenContentCallback(
+              onAdDismissedFullScreenContent: (ad) {
+                ad.dispose();
+                _rewardedInterstitials[key] = null;
+                rewardedInterstitialStates[key] = AdsLoadState.idle;
+                _isShowingVideoAd = false;
+                _loadRewardedInterstitial(key); // preload next
+                onDismissed();
+              },
+              onAdFailedToShowFullScreenContent: (ad, error) {
+                ad.dispose();
+                _rewardedInterstitials[key] = null;
+                rewardedInterstitialStates[key] = AdsLoadState.failed;
+                _isShowingVideoAd = false;
+                onFailed();
+              },
+            );
+
+            ad.show(onUserEarnedReward: (ad, reward) {
+              onReward();
+            });
+          },
+          onAdFailedToLoad: (error) {
+            _rewardedInterstitials[key] = null;
+            rewardedInterstitialStates[key] = AdsLoadState.failed;
+            onFailed();
+          },
+        ),
+      );
+    } else {
+      // Already preloaded
+      onLoaded();
+      ad.show(onUserEarnedReward: (ad, reward) => onReward());
+    }
+  }
+}
+
+/// -------------------- ADAPTIVE BANNER --------------------
+class _AdaptiveBannerWidget extends StatefulWidget {
+  final String bannerKey;
+  final String adUnitId;
+  const _AdaptiveBannerWidget({required this.bannerKey, required this.adUnitId, super.key});
+
+  @override
+  State<_AdaptiveBannerWidget> createState() => _AdaptiveBannerWidgetState();
+}
+
+class _AdaptiveBannerWidgetState extends State<_AdaptiveBannerWidget> {
+  BannerAd? _bannerAd;
+  AdsLoadState _loadState = AdsLoadState.idle;
+  double _adHeight = 0;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _loadBanner();
+  }
+
+  void _loadBanner() {
+    AdSize.getCurrentOrientationAnchoredAdaptiveBannerAdSize(
+      MediaQuery.of(context).size.width.truncate(),
+    ).then((size) {
+      if (size == null) return;
+      _adHeight = size.height.toDouble();
+      final banner = BannerAd(
+        adUnitId: widget.adUnitId,
+        size: size,
+        request: const AdRequest(),
+        listener: BannerAdListener(
+          onAdLoaded: (_) => setState(() => _loadState = AdsLoadState.loaded),
+          onAdFailedToLoad: (ad, _) {
+            ad.dispose();
+            setState(() => _loadState = AdsLoadState.failed);
+          },
+        ),
+      );
+      banner.load();
+      _bannerAd = banner;
+      AdsManager._banners[widget.bannerKey] = banner;
+      AdsManager.bannerStates[widget.bannerKey] = AdsLoadState.loading;
+    });
+  }
+
+  @override
+  void dispose() {
+    _bannerAd?.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loadState != AdsLoadState.loaded || _bannerAd == null) return const SizedBox.shrink();
+    return SizedBox(
+      width: _bannerAd!.size.width.toDouble(),
+      height: _adHeight,
+      child: AdWidget(ad: _bannerAd!),
+    );
+  }
+}
+
+/// -------------------- NATIVE AD WIDGET --------------------
+class _NativeAdWidget extends StatefulWidget {
+  final String adUnitId;
+  final String adKey;
+  final double height;
+  final String factoryId;
+
+  const _NativeAdWidget({
+    required this.adUnitId,
+    required this.adKey,
+    this.height = 100,
+    this.factoryId = 'listTile',
+    super.key,
+  });
+
+  @override
+  State<_NativeAdWidget> createState() => _NativeAdWidgetState();
+}
+
+class _NativeAdWidgetState extends State<_NativeAdWidget> {
+  NativeAd? _nativeAd;
+  AdsLoadState _loadState = AdsLoadState.idle;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadNative();
+  }
+
+  void _loadNative() {
+    _nativeAd = NativeAd(
+      adUnitId: widget.adUnitId,
+      factoryId: widget.factoryId,
+      request: const AdRequest(),
+      listener: NativeAdListener(
+        onAdLoaded: (_) => setState(() => _loadState = AdsLoadState.loaded),
+        onAdFailedToLoad: (ad, _) {
+          ad.dispose();
+          setState(() => _loadState = AdsLoadState.failed);
+        },
+      ),
+    );
+    _nativeAd!.load();
+    AdsManager._nativeAds[widget.adKey] = _nativeAd;
+    AdsManager.nativeStates[widget.adKey] = AdsLoadState.loading;
+  }
+
+  @override
+  void dispose() {
+    _nativeAd?.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loadState != AdsLoadState.loaded || _nativeAd == null) return const SizedBox.shrink();
+    return SizedBox(
+      height: widget.height,
+      child: AdWidget(ad: _nativeAd!),
+    );
+  }
+}
+
+class AdsLifecycleHandler extends WidgetsBindingObserver {
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      AdsManager.showAppOpenAd();
+    }
   }
 }

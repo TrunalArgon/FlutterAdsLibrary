@@ -1,0 +1,24 @@
+import 'package:flutter/material.dart';
+import 'package:get/get.dart';
+import '../../../../ads_manager.dart';
+import '../controllers/native_screen_controller.dart';
+
+class NativeScreenView extends GetView {
+  @override
+  Widget build(BuildContext context) {
+    return GetBuilder<NativeScreenController>(
+      init: NativeScreenController(),
+      builder: (controller) {
+        return Scaffold(
+          appBar: AppBar(title: Text('Native'), centerTitle: true),
+          body: Center(
+            child: Column(
+              children: [
+                ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
