@@ -1,6 +1,7 @@
 import 'package:ads_library/ads_manager.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
+import 'package:google_mobile_ads/google_mobile_ads.dart';
 import '../controllers/native_screen_controller.dart';
 
 class NativeScreenView extends GetView {
@@ -14,7 +15,11 @@ class NativeScreenView extends GetView {
           body: Center(
             child: Column(
               children: [
-                AdsManager.showNativeTemplate('native2', templateType: TemplateType.medium, height: 200),
+                AdsManager.showNativeTemplate(templateType: TemplateType.small),
+
+                SizedBox(height: 100),
+
+                AdsManager.showNativeTemplate(templateType: TemplateType.medium, height: 350),
               ],
             ),
           ),

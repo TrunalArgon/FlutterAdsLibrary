@@ -1,30 +1,62 @@
+import 'dart:convert';
+import 'package:ads_library/firebase_options.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
-import 'ads_manager.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'ads_kit.dart';
 import 'app/routes/app_pages.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 
-  AdsManager.initialize(
-    env: AdsEnvironment.testing,
-    appOpen: AdUnitIds(android: 'ca-app-pub-3940256099942544/9257395921'),
-    banner: AdUnitIds(android: 'ca-app-pub-3940256099942544/9214589741'),
-    interstitial: AdUnitIds(android: 'ca-app-pub-3940256099942544/1033173712'),
-    native: AdUnitIds(android: 'ca-app-pub-3940256099942544/2247696110'),
-    rewarded: AdUnitIds(android: 'ca-app-pub-3940256099942544/5224354917'),
-    rewardedInterstitial: AdUnitIds(android: 'ca-app-pub-3940256099942544/5354046379'),
-    testDeviceIds: ['F777F38A1A80E262DDC67F1B141E88B3'],
-  );
-  // banner: AdUnitIds(android: 'ca-app-pub-3940256099942544/9214589741'),
-
-  WidgetsBinding.instance.addObserver(AdsLifecycleHandler());
+  await AdsKit.initFromRemoteConfig(defaultParamValues: {
+    "env": "production",
+    "testDeviceIds": jsonEncode([""]),
+    "placements": jsonEncode({
+      "appOpen": {
+        "android": "",
+        "ios": "",
+        "adsDisable": false,
+        "adsFrequencySec": 40
+      },
+      "banner": {
+        "android": "",
+        "ios": "",
+        "adsDisable": false
+      },
+      "native": {
+        "android": "",
+        "ios": "",
+        "adsDisable": false
+      },
+      "interstitial": {
+        "android": "",
+        "ios": "",
+        "adsDisable": false,
+        "adsFrequencySec": 40
+      },
+      "rewarded": {
+        "android": "",
+        "ios": "",
+        "adsDisable": false,
+        "adsFrequencySec": 40
+      },
+      "rewardedInterstitial": {
+        "android": "",
+        "ios": "",
+        "adsDisable": false,
+        "adsFrequencySec": 40
+      }
+    }),
+  });
 
   runApp(
     GetMaterialApp(
-      title: "Application",
-      initialRoute: AppPages.INITIAL,
+      title: "Ads Library Project",
       getPages: AppPages.routes,
+      initialRoute: AppPages.INITIAL,
+      debugShowCheckedModeBanner: false,
     ),
   );
 }

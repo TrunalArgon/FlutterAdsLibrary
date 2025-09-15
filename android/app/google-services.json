@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "932031628532",
+    "project_id": "adslibrary-test",
+    "storage_bucket": "adslibrary-test.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:932031628532:android:68b9d6e9722319c6bd0aa1",
+        "android_client_info": {
+          "package_name": "com.example.ads_library"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAdwDeAhqBFgnItB_wkJn0ZfKqei_DWZkc"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

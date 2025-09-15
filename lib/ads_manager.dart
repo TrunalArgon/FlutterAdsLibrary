@@ -1,12 +1,36 @@
 import 'package:flutter/foundation.dart';
-import 'package:flutter/widgets.dart';
+import 'package:flutter/material.dart';
+import 'package:get_storage/get_storage.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
+
+/// This must exist in your app bootstrap (kept here for clarity)
+final box = GetStorage();
+
+/// -------------------- (Legacy key names for compatibility) --------------------
+class ArgumentConstant {
+  static const String isInterstitialStartTime = 'isInterstitialStartTime';      // Interstitial last show ts (ms)
+  static const String isAppOpenStartTime = 'isAppOpenStartTime';                // AppOpen last show ts (ms)
+
+  // ✅ Added for Rewarded / Rewarded Interstitial cooldowns
+  static const String isRewardedStartTime = 'isRewardedStartTime';              // Rewarded last show ts (ms)
+  static const String isRewardedInterStartTime = 'isRewardedInterStartTime';    // Rewarded Interstitial last show ts (ms)
+}
 
 /// -------------------- AD UNIT IDS --------------------
 class AdUnitIds {
   final String? android;
   final String? ios;
-  AdUnitIds({this.android, this.ios});
+  /// Minimum seconds between shows for this placement
+  final int? adsFrequencySec;
+  /// If true, the placement will never show
+  final bool? adsDisable;
+
+  AdUnitIds({
+    this.android,
+    this.ios,
+    this.adsFrequencySec = 40,
+    this.adsDisable = false,
+  });
 
   String? forTargetPlatform(TargetPlatform platform) {
     if (platform == TargetPlatform.android) return android;
@@ -17,6 +41,37 @@ class AdUnitIds {
 
 enum AdsEnvironment { production, testing }
 enum AdsLoadState { idle, loading, loaded, failed }
+
+/// -------------------- INTERNAL COOLDOWN/TIMING HELPERS --------------------
+class _Cooldown {
+  static int _nowMs() => DateTime.now().millisecondsSinceEpoch;
+
+  static int _readMs(String key) {
+    final v = box.read(key);
+    if (v == null) return 0;
+    if (v is int) return v;
+    return int.tryParse(v.toString()) ?? 0;
+  }
+
+  static void _writeNow(String key) => box.write(key, _nowMs());
+
+  /// Compatibility helper that mirrors your previous "difference" printouts
+  /// and uses a dynamic threshold (seconds).
+  static bool isReadyVerboseSeconds(String key, int thresholdSec) {
+    final start = _readMs(key);
+    final current = _nowMs();
+    final difference = current - start;
+    final differenceTimeSec = difference ~/ 1000;
+
+    debugPrint("Difference := $difference");
+    debugPrint("StartTime := $start");
+    debugPrint("currentDate := $current");
+
+    final ready = differenceTimeSec > thresholdSec;
+    if (ready) _writeNow(key); // pre-stamp on allow, same pattern as inter/app open guard
+    return ready;
+  }
+}
 
 /// -------------------- ADS MANAGER --------------------
 class AdsManager {
@@ -54,6 +109,7 @@ class AdsManager {
   /// -------------------- APP OPEN --------------------
   static AppOpenAd? _appOpenAd;
   static AdsLoadState appOpenState = AdsLoadState.idle;
+  static bool _appOpenInitialized = false;
 
   /// -------------------- NATIVE --------------------
   static final Map<String, NativeAd?> _nativeAds = {};
@@ -90,10 +146,25 @@ class AdsManager {
     _initialized = true;
 
     // Preload defaults
-    if (rewardedInterstitialIds != null) await _loadRewardedInterstitial('default');
-    if (interstitialIds != null) await _loadInterstitial('default');
-    if (rewardedIds != null) await _loadRewarded('default');
+    if (rewardedInterstitialIds != null && (rewardedInterstitialIds!.adsDisable != true)) {
+      await _loadRewardedInterstitial();
+    }
+    if (interstitialIds != null && (interstitialIds!.adsDisable != true)) {
+      await _loadInterstitial();
+    }
+    if (rewardedIds != null && (rewardedIds!.adsDisable != true)) {
+      await _loadRewarded();
+    }
+
+    // 👇 Preload AppOpen once
+    if (appOpenIds != null && (appOpenIds!.adsDisable != true)) {
+      await loadAppOpenAd();
+      WidgetsBinding.instance.addObserver(AdsLifecycleHandler());
+      _appOpenInitialized = true;
+    }
   }
+
+  static bool get isAppOpenInitialized => _appOpenInitialized;
 
   /// -------------------- HELPERS --------------------
   static String? _resolveBanner(String? adUnitId) =>
@@ -114,23 +185,26 @@ class AdsManager {
   static String? _resolveNative(String? adUnitId) =>
       adUnitId ?? nativeIds?.forTargetPlatform(defaultTargetPlatform);
 
+  static int _freqOrDefault(AdUnitIds? ids, int fallback) =>
+      (ids?.adsFrequencySec ?? fallback).clamp(0, 7 * 24 * 60 * 60);
+
   /// -------------------- BANNER --------------------
-  static Widget showBanner(String key, {String? adUnitId}) {
+  static Widget showBanner({String key = "banner1", String? adUnitId, bool isShowAdaptive = true}) {
     _banners[key]?.dispose();
     _bannerWidgets.remove(key);
 
     final resolved = _resolveBanner(adUnitId);
-    if (resolved == null) return const SizedBox.shrink();
+    if (resolved == null || (bannerIds?.adsDisable ?? false)) return const SizedBox.shrink();
 
-    final widget = _AdaptiveBannerWidget(bannerKey: key, adUnitId: resolved);
+    final widget = _AdaptiveBannerWidget(bannerKey: key, adUnitId: resolved, isShowAdaptive: isShowAdaptive);
     _bannerWidgets[key] = widget;
     return widget;
   }
 
   /// -------------------- INTERSTITIAL --------------------
-  static Future<void> _loadInterstitial(String key, {String? adUnitId}) async {
+  static Future<void> _loadInterstitial({String key = "inter", String? adUnitId}) async {
     final resolved = _resolveInterstitial(adUnitId);
-    if (resolved == null) return;
+    if (resolved == null || (interstitialIds?.adsDisable ?? false)) return;
 
     interstitialStates[key] = AdsLoadState.loading;
     InterstitialAd.load(
@@ -149,22 +223,42 @@ class AdsManager {
     );
   }
 
-  static void showInterstitial(String key,
-      {String? adUnitId, VoidCallback? onDismissed}) {
+  /// Shows interstitial only if its cooldown (adsFrequencySec) has elapsed.
+  static void showInterstitial({
+    String key = "inter",
+    String? adUnitId,
+    VoidCallback? onDismissed,
+  }) {
+    if (interstitialIds?.adsDisable ?? false) {
+      onDismissed?.call();
+      return;
+    }
+
+    final freq = _freqOrDefault(interstitialIds, 40);
+    final ready = _Cooldown.isReadyVerboseSeconds(ArgumentConstant.isInterstitialStartTime, freq);
+    if (!ready) {
+      onDismissed?.call();
+      return;
+    }
+
     final ad = _interstitials[key];
     if (ad == null) {
-      _loadInterstitial(key, adUnitId: adUnitId);
+      _loadInterstitial(adUnitId: adUnitId);
+      onDismissed?.call();
       return;
     }
 
     _isShowingVideoAd = true;
     ad.fullScreenContentCallback = FullScreenContentCallback(
+      onAdShowedFullScreenContent: (ad) {
+        box.write(ArgumentConstant.isInterstitialStartTime, DateTime.now().millisecondsSinceEpoch);
+      },
       onAdDismissedFullScreenContent: (ad) {
         ad.dispose();
         _interstitials[key] = null;
         interstitialStates[key] = AdsLoadState.idle;
         _isShowingVideoAd = false;
-        _loadInterstitial(key);
+        _loadInterstitial();
         onDismissed?.call();
       },
       onAdFailedToShowFullScreenContent: (ad, error) {
@@ -172,7 +266,7 @@ class AdsManager {
         _interstitials[key] = null;
         interstitialStates[key] = AdsLoadState.idle;
         _isShowingVideoAd = false;
-        _loadInterstitial(key);
+        _loadInterstitial();
         onDismissed?.call();
       },
     );
@@ -182,9 +276,9 @@ class AdsManager {
   }
 
   /// -------------------- REWARDED --------------------
-  static Future<void> _loadRewarded(String key, {String? adUnitId}) async {
+  static Future<void> _loadRewarded({String key = "rewarded", String? adUnitId}) async {
     final resolved = _resolveRewarded(adUnitId);
-    if (resolved == null) return;
+    if (resolved == null || (rewardedIds?.adsDisable ?? false)) return;
 
     rewardedStates[key] = AdsLoadState.loading;
     RewardedAd.load(
@@ -203,22 +297,45 @@ class AdsManager {
     );
   }
 
-  static void showRewarded(String key,
-      {String? adUnitId, required VoidCallback onReward, VoidCallback? onDismissed}) {
+  /// Shows rewarded only if its cooldown has elapsed (same guard as inter/app-open).
+  static void showRewarded({
+    String key = "rewarded",
+    String? adUnitId,
+    required VoidCallback onReward,
+    VoidCallback? onDismissed,
+  }) {
+    if (rewardedIds?.adsDisable ?? false) {
+      onDismissed?.call();
+      return;
+    }
+
+    // ✅ Cooldown guard using isReadyVerboseSeconds
+    final freq = _freqOrDefault(rewardedIds, 40);
+    final ready = _Cooldown.isReadyVerboseSeconds(ArgumentConstant.isRewardedStartTime, freq);
+    if (!ready) {
+      onDismissed?.call();
+      return;
+    }
+
     final ad = _rewardedAds[key];
     if (ad == null) {
-      _loadRewarded(key, adUnitId: adUnitId);
+      _loadRewarded(adUnitId: adUnitId);
+      onDismissed?.call();
       return;
     }
 
     _isShowingVideoAd = true;
     ad.fullScreenContentCallback = FullScreenContentCallback(
+      onAdShowedFullScreenContent: (ad) {
+        // ✅ Stamp show time for Rewarded cooldown
+        box.write(ArgumentConstant.isRewardedStartTime, DateTime.now().millisecondsSinceEpoch);
+      },
       onAdDismissedFullScreenContent: (ad) {
         ad.dispose();
         _rewardedAds[key] = null;
         rewardedStates[key] = AdsLoadState.idle;
         _isShowingVideoAd = false;
-        _loadRewarded(key);
+        _loadRewarded();
         onDismissed?.call();
       },
       onAdFailedToShowFullScreenContent: (ad, error) {
@@ -226,7 +343,7 @@ class AdsManager {
         _rewardedAds[key] = null;
         rewardedStates[key] = AdsLoadState.idle;
         _isShowingVideoAd = false;
-        _loadRewarded(key);
+        _loadRewarded();
         onDismissed?.call();
       },
     );
@@ -236,9 +353,9 @@ class AdsManager {
   }
 
   /// -------------------- REWARDED INTERSTITIAL --------------------
-  static Future<void> _loadRewardedInterstitial(String key, {String? adUnitId}) async {
+  static Future<void> _loadRewardedInterstitial({String key = "rewarded_inter", String? adUnitId}) async {
     final resolved = _resolveRewardedInterstitial(adUnitId);
-    if (resolved == null) return;
+    if (resolved == null || (rewardedInterstitialIds?.adsDisable ?? false)) return;
 
     rewardedInterstitialStates[key] = AdsLoadState.loading;
     RewardedInterstitialAd.load(
@@ -257,22 +374,45 @@ class AdsManager {
     );
   }
 
-  static void showRewardedInterstitial(String key,
-      {String? adUnitId, required VoidCallback onReward, VoidCallback? onDismissed}) {
+  /// Shows rewarded-interstitial only if its cooldown has elapsed.
+  static void showRewardedInterstitial({
+    String key = "rewarded_inter",
+    String? adUnitId,
+    required VoidCallback onReward,
+    VoidCallback? onDismissed,
+  }) {
+    if (rewardedInterstitialIds?.adsDisable ?? false) {
+      onDismissed?.call();
+      return;
+    }
+
+    // ✅ Cooldown guard using isReadyVerboseSeconds
+    final freq = _freqOrDefault(rewardedInterstitialIds, 40);
+    final ready = _Cooldown.isReadyVerboseSeconds(ArgumentConstant.isRewardedInterStartTime, freq);
+    if (!ready) {
+      onDismissed?.call();
+      return;
+    }
+
     final ad = _rewardedInterstitials[key];
     if (ad == null) {
-      _loadRewardedInterstitial(key, adUnitId: adUnitId);
+      _loadRewardedInterstitial(adUnitId: adUnitId);
+      onDismissed?.call();
       return;
     }
 
     _isShowingVideoAd = true;
     ad.fullScreenContentCallback = FullScreenContentCallback(
+      onAdShowedFullScreenContent: (ad) {
+        // ✅ Stamp show time for Rewarded Interstitial cooldown
+        box.write(ArgumentConstant.isRewardedInterStartTime, DateTime.now().millisecondsSinceEpoch);
+      },
       onAdDismissedFullScreenContent: (ad) {
         ad.dispose();
         _rewardedInterstitials[key] = null;
         rewardedInterstitialStates[key] = AdsLoadState.idle;
         _isShowingVideoAd = false;
-        _loadRewardedInterstitial(key);
+        _loadRewardedInterstitial();
         onDismissed?.call();
       },
       onAdFailedToShowFullScreenContent: (ad, error) {
@@ -280,7 +420,7 @@ class AdsManager {
         _rewardedInterstitials[key] = null;
         rewardedInterstitialStates[key] = AdsLoadState.idle;
         _isShowingVideoAd = false;
-        _loadRewardedInterstitial(key);
+        _loadRewardedInterstitial();
         onDismissed?.call();
       },
     );
@@ -293,7 +433,7 @@ class AdsManager {
   static Future<void> loadAppOpenAd({String? adUnitId}) async {
     if (_isShowingVideoAd) return;
     final resolved = _resolveAppOpen(adUnitId);
-    if (resolved == null) return;
+    if (resolved == null || (appOpenIds?.adsDisable ?? false)) return;
 
     appOpenState = AdsLoadState.loading;
     AppOpenAd.load(
@@ -307,17 +447,29 @@ class AdsManager {
         onAdFailedToLoad: (error) {
           _appOpenAd = null;
           appOpenState = AdsLoadState.failed;
+          debugPrint("AppOpen load error: $error");
         },
       ),
     );
   }
 
+  /// Shows AppOpen only if its cooldown (adsFrequencySec) has elapsed.
   static void showAppOpenAd() {
     if (_isShowingVideoAd) return;
+    if (appOpenIds?.adsDisable ?? false) return;
+
+    // Respect frequency using legacy key for compatibility
+    final freq = _freqOrDefault(appOpenIds, 40);
+    final ready = _Cooldown.isReadyVerboseSeconds(ArgumentConstant.isAppOpenStartTime, freq);
+    if (!ready) return;
+
     final ad = _appOpenAd;
     if (ad == null) return;
 
     ad.fullScreenContentCallback = FullScreenContentCallback(
+      onAdShowedFullScreenContent: (ad) {
+        box.write(ArgumentConstant.isAppOpenStartTime, DateTime.now().millisecondsSinceEpoch);
+      },
       onAdDismissedFullScreenContent: (ad) {
         ad.dispose();
         _appOpenAd = null;
@@ -328,6 +480,7 @@ class AdsManager {
         ad.dispose();
         _appOpenAd = null;
         appOpenState = AdsLoadState.idle;
+        loadAppOpenAd();
       },
     );
 
@@ -336,13 +489,17 @@ class AdsManager {
   }
 
   /// -------------------- NATIVE --------------------
-  static Widget showNative(String key,
-      {String? adUnitId, double height = 100, String factoryId = 'listTile'}) {
+  static Widget showNative(
+      String key, {
+        String? adUnitId,
+        double height = 100,
+        String factoryId = 'listTile',
+      }) {
     _nativeAds[key]?.dispose();
     _nativeWidgets.remove(key);
 
     final resolved = _resolveNative(adUnitId);
-    if (resolved == null) return const SizedBox.shrink();
+    if (resolved == null || (nativeIds?.adsDisable ?? false)) return const SizedBox.shrink();
 
     final widget = _NativeAdWidget(
       adUnitId: resolved,
@@ -354,17 +511,17 @@ class AdsManager {
     return widget;
   }
 
-  static Widget showNativeTemplate(
-      String key, {
-        String? adUnitId,
-        TemplateType templateType = TemplateType.medium,
-        double height = 200,
-      }) {
+  static Widget showNativeTemplate({
+    String key = 'native1',
+    String? adUnitId,
+    TemplateType templateType = TemplateType.medium,
+    double height = 100,
+  }) {
     _nativeAds[key]?.dispose();
     _nativeWidgets.remove(key);
 
     final resolved = _resolveNative(adUnitId);
-    if (resolved == null) return const SizedBox.shrink();
+    if (resolved == null || (nativeIds?.adsDisable ?? false)) return const SizedBox.shrink();
 
     final widget = _NativeTemplateAdWidget(
       adUnitId: resolved,
@@ -385,6 +542,19 @@ class AdsManager {
     required VoidCallback onDismissed,
     required VoidCallback onFailed,
   }) {
+    if (rewardedInterstitialIds?.adsDisable ?? false) {
+      onFailed();
+      return;
+    }
+
+    // ✅ Cooldown guard before any load/show attempts
+    final freq = _freqOrDefault(rewardedInterstitialIds, 40);
+    final ready = _Cooldown.isReadyVerboseSeconds(ArgumentConstant.isRewardedInterStartTime, freq);
+    if (!ready) {
+      onFailed(); // or onDismissed(); choose based on your UX
+      return;
+    }
+
     final ad = _rewardedInterstitials[key];
 
     if (ad == null) {
@@ -405,12 +575,16 @@ class AdsManager {
 
             _isShowingVideoAd = true;
             ad.fullScreenContentCallback = FullScreenContentCallback(
+              onAdShowedFullScreenContent: (ad) {
+                // ✅ Stamp show time for Rewarded Interstitial cooldown (callbacks path)
+                box.write(ArgumentConstant.isRewardedInterStartTime, DateTime.now().millisecondsSinceEpoch);
+              },
               onAdDismissedFullScreenContent: (ad) {
                 ad.dispose();
                 _rewardedInterstitials[key] = null;
                 rewardedInterstitialStates[key] = AdsLoadState.idle;
                 _isShowingVideoAd = false;
-                _loadRewardedInterstitial(key);
+                _loadRewardedInterstitial();
                 onDismissed();
               },
               onAdFailedToShowFullScreenContent: (ad, error) {
@@ -435,6 +609,27 @@ class AdsManager {
       );
     } else {
       onLoaded();
+      _isShowingVideoAd = true;
+      ad.fullScreenContentCallback = FullScreenContentCallback(
+        onAdShowedFullScreenContent: (ad) {
+          box.write(ArgumentConstant.isRewardedInterStartTime, DateTime.now().millisecondsSinceEpoch);
+        },
+        onAdDismissedFullScreenContent: (ad) {
+          ad.dispose();
+          _rewardedInterstitials[key] = null;
+          rewardedInterstitialStates[key] = AdsLoadState.idle;
+          _isShowingVideoAd = false;
+          _loadRewardedInterstitial();
+          onDismissed();
+        },
+        onAdFailedToShowFullScreenContent: (ad, error) {
+          ad.dispose();
+          _rewardedInterstitials[key] = null;
+          rewardedInterstitialStates[key] = AdsLoadState.failed;
+          _isShowingVideoAd = false;
+          onFailed();
+        },
+      );
       ad.show(onUserEarnedReward: (ad, reward) => onReward());
     }
   }
@@ -444,7 +639,8 @@ class AdsManager {
 class _AdaptiveBannerWidget extends StatefulWidget {
   final String bannerKey;
   final String adUnitId;
-  const _AdaptiveBannerWidget({required this.bannerKey, required this.adUnitId, super.key});
+  final bool isShowAdaptive;
+  const _AdaptiveBannerWidget({required this.bannerKey, required this.adUnitId, required this.isShowAdaptive});
 
   @override
   State<_AdaptiveBannerWidget> createState() => _AdaptiveBannerWidgetState();
@@ -465,17 +661,17 @@ class _AdaptiveBannerWidgetState extends State<_AdaptiveBannerWidget> {
     AdSize.getCurrentOrientationAnchoredAdaptiveBannerAdSize(
       MediaQuery.of(context).size.width.truncate(),
     ).then((size) {
-      if (size == null) return;
+      if (!mounted || size == null) return;
       _adHeight = size.height.toDouble();
       final banner = BannerAd(
         adUnitId: widget.adUnitId,
-        size: size,
+        size: widget.isShowAdaptive ? size : AdSize.banner,
         request: const AdRequest(),
         listener: BannerAdListener(
-          onAdLoaded: (_) => setState(() => _loadState = AdsLoadState.loaded),
+          onAdLoaded: (_) => mounted ? setState(() => _loadState = AdsLoadState.loaded) : null,
           onAdFailedToLoad: (ad, _) {
             ad.dispose();
-            setState(() => _loadState = AdsLoadState.failed);
+            if (mounted) setState(() => _loadState = AdsLoadState.failed);
           },
         ),
       );
@@ -515,7 +711,6 @@ class _NativeAdWidget extends StatefulWidget {
     required this.adKey,
     this.height = 100,
     this.factoryId = 'listTile',
-    super.key,
   });
 
   @override
@@ -538,10 +733,10 @@ class _NativeAdWidgetState extends State<_NativeAdWidget> {
       factoryId: widget.factoryId,
       request: const AdRequest(),
       listener: NativeAdListener(
-        onAdLoaded: (_) => setState(() => _loadState = AdsLoadState.loaded),
+        onAdLoaded: (_) => mounted ? setState(() => _loadState = AdsLoadState.loaded) : null,
         onAdFailedToLoad: (ad, _) {
           ad.dispose();
-          setState(() => _loadState = AdsLoadState.failed);
+          if (mounted) setState(() => _loadState = AdsLoadState.failed);
         },
       ),
     );
@@ -567,8 +762,6 @@ class _NativeAdWidgetState extends State<_NativeAdWidget> {
 }
 
 /// -------------------- NATIVE TEMPLATE AD WIDGET --------------------
-enum TemplateType { small, medium, custom }
-
 class _NativeTemplateAdWidget extends StatefulWidget {
   final String adUnitId;
   final String adKey;
@@ -580,7 +773,6 @@ class _NativeTemplateAdWidget extends StatefulWidget {
     required this.adKey,
     this.templateType = TemplateType.medium,
     this.height = 200,
-    super.key,
   });
 
   @override
@@ -600,16 +792,46 @@ class _NativeTemplateAdWidgetState extends State<_NativeTemplateAdWidget> {
   void _loadNativeTemplate() {
     _nativeAd = NativeAd(
       adUnitId: widget.adUnitId,
-      factoryId: widget.templateType.name, // "small" | "medium" | "custom"
       request: const AdRequest(),
       listener: NativeAdListener(
-        onAdLoaded: (_) => setState(() => _loadState = AdsLoadState.loaded),
+        onAdLoaded: (_) => mounted ? setState(() => _loadState = AdsLoadState.loaded) : null,
         onAdFailedToLoad: (ad, _) {
           ad.dispose();
-          setState(() => _loadState = AdsLoadState.failed);
+          if (mounted) setState(() => _loadState = AdsLoadState.failed);
         },
       ),
+      // ✅ Theme these to your UI
+      nativeTemplateStyle: NativeTemplateStyle(
+        templateType: widget.templateType,
+        mainBackgroundColor: Colors.white,
+        cornerRadius: 8.0,
+        callToActionTextStyle: NativeTemplateTextStyle(
+          textColor: Colors.white,
+          backgroundColor: Colors.blue,
+          style: NativeTemplateFontStyle.bold,
+          size: 16.0,
+        ),
+        primaryTextStyle: NativeTemplateTextStyle(
+          textColor: Colors.black,
+          backgroundColor: Colors.transparent,
+          style: NativeTemplateFontStyle.normal,
+          size: 14.0,
+        ),
+        secondaryTextStyle: NativeTemplateTextStyle(
+          textColor: Colors.grey,
+          backgroundColor: Colors.transparent,
+          style: NativeTemplateFontStyle.italic,
+          size: 12.0,
+        ),
+        tertiaryTextStyle: NativeTemplateTextStyle(
+          textColor: Colors.black,
+          backgroundColor: Colors.transparent,
+          style: NativeTemplateFontStyle.monospace,
+          size: 12.0,
+        ),
+      ),
     );
+
     _nativeAd!.load();
     AdsManager._nativeAds[widget.adKey] = _nativeAd;
     AdsManager.nativeStates[widget.adKey] = AdsLoadState.loading;
@@ -623,7 +845,9 @@ class _NativeTemplateAdWidgetState extends State<_NativeTemplateAdWidget> {
 
   @override
   Widget build(BuildContext context) {
-    if (_loadState != AdsLoadState.loaded || _nativeAd == null) return const SizedBox.shrink();
+    if (_loadState != AdsLoadState.loaded || _nativeAd == null) {
+      return const SizedBox.shrink();
+    }
     return SizedBox(
       height: widget.height,
       child: AdWidget(ad: _nativeAd!),
@@ -635,8 +859,11 @@ class _NativeTemplateAdWidgetState extends State<_NativeTemplateAdWidget> {
 class AdsLifecycleHandler extends WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) {
-      AdsManager.showAppOpenAd();
-    }
+    AppStateEventNotifier.startListening();
+    AppStateEventNotifier.appStateStream.forEach((appState) {
+      if (appState == AppState.foreground) {
+        AdsManager.showAppOpenAd();
+      }
+    });
   }
 }
