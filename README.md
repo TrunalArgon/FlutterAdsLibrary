@@ -1,4 +1,12 @@
 .📘 Ads Library Documentation
+
+Add This Library in pubspec.yaml file:
+ads_library:
+    git:
+        url: https://github.com/TrunalArgon/FlutterAdsLibrary.git
+        ref: main
+
+
 1. Initialization
 
 Initialize AdsKit using a local JSON configuration (or remote if required).
