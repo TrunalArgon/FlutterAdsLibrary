@@ -1,19 +1,17 @@
 import 'dart:convert';
-import 'package:ads_library/firebase_options.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
-import 'package:firebase_core/firebase_core.dart';
 import 'ads_kit.dart';
 import 'app/routes/app_pages.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 
-  await AdsKit.initFromRemoteConfig(defaultParamValues: {
+  // ✅ Static ads config JSON
+  final adsConfig = {
     "env": "production",
-    "testDeviceIds": jsonEncode([""]),
-    "placements": jsonEncode({
+    "testDeviceIds": [""],
+    "placements": {
       "appOpen": {
         "android": "",
         "ios": "",
@@ -48,8 +46,11 @@ Future<void> main() async {
         "adsDisable": false,
         "adsFrequencySec": 40
       }
-    }),
-  });
+    }
+  };
+
+  // ✅ Initialize AdsKit from local JSON string
+  await AdsKit.initFromJson(jsonEncode(adsConfig));
 
   runApp(
     GetMaterialApp(

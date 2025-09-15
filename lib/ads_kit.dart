@@ -2,43 +2,12 @@ library ads_kit;
 
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
-import 'package:firebase_remote_config/firebase_remote_config.dart';
-
 import 'ads_manager.dart';
 
-/// Users only need to add a Remote Config param (default: 'ads_config_json')
-/// with a *partial* JSON. Anything missing is safely filled:
-/// - env: anything not "production" => testing
-/// - missing/empty android/ios adUnitId => Google test id for that placement
-///
-/// Example minimal JSON a user can set:
-/// {
-///   "env": "production",             // or testing/anything (non-production -> testing)
-///   "testDeviceIds": ["ABCDEF1234"], // optional
-///   "placements": {
-///     "interstitial": { "android": "ca-app-pub-xxx/yyy" } // ios missing -> test id filled
-///   }
-/// }
+/// ------------------ AdsKit entry ------------------
 class AdsKit {
-  static const String defaultRcParam = 'ads_config_json';
-
-  /// Call this after Firebase.initializeApp().
-  static Future<void> initFromRemoteConfig({
-    String paramName = defaultRcParam,
-    Duration fetchTimeout = const Duration(seconds: 10),
-    Duration minimumFetchInterval = const Duration(minutes: 5),
-    Map<String, dynamic> defaultParamValues = const {'ads_config_json': ''},
-  }) async {
-    final rc = FirebaseRemoteConfig.instance;
-
-    await rc.setDefaults(defaultParamValues);
-    await rc.setConfigSettings(RemoteConfigSettings(
-      fetchTimeout: fetchTimeout,
-      minimumFetchInterval: minimumFetchInterval,
-    ));
-    await rc.fetchAndActivate();
-
-    final jsonStr = rc.getString(paramName);
+  /// Initialize Ads from local JSON string
+  static Future<void> initFromJson(String jsonStr) async {
     if (jsonStr.isNotEmpty) {
       try {
         final map = json.decode(jsonStr) as Map<String, dynamic>;
@@ -46,7 +15,7 @@ class AdsKit {
         await _initializeAdsFromConfig(cfg);
         return;
       } catch (e, st) {
-        debugPrint('ads_kit: RC parse failed => $e\n$st');
+        debugPrint('ads_kit: JSON parse failed => $e\n$st');
       }
     }
 
@@ -84,7 +53,6 @@ Future<void> _initializeAdsFallback() async {
 }
 
 /// ------------------ Lightweight config models ------------------
-
 class _AdPlacementCfg {
   String? android;
   String? ios;
@@ -128,27 +96,27 @@ class _AdPlacementCfg {
     switch (placementKey) {
       case 'banner':
         android ??= _TestIds.bannerAndroid;
-        ios     ??= _TestIds.bannerIos;
+        ios ??= _TestIds.bannerIos;
         break;
       case 'interstitial':
         android ??= _TestIds.interstitialAndroid;
-        ios     ??= _TestIds.interstitialIos;
+        ios ??= _TestIds.interstitialIos;
         break;
       case 'rewarded':
         android ??= _TestIds.rewardedAndroid;
-        ios     ??= _TestIds.rewardedIos;
+        ios ??= _TestIds.rewardedIos;
         break;
       case 'rewardedInterstitial':
         android ??= _TestIds.rewardedInterstitialAndroid;
-        ios     ??= _TestIds.rewardedInterstitialIos;
+        ios ??= _TestIds.rewardedInterstitialIos;
         break;
       case 'appOpen':
         android ??= _TestIds.appOpenAndroid;
-        ios     ??= _TestIds.appOpenIos;
+        ios ??= _TestIds.appOpenIos;
         break;
       case 'native':
         android ??= _TestIds.nativeAndroid;
-        ios     ??= _TestIds.nativeIos;
+        ios ??= _TestIds.nativeIos;
         break;
       default:
         break;
@@ -169,8 +137,9 @@ class _AdsConfig {
 
   factory _AdsConfig.fromMap(Map<String, dynamic> map) {
     final envStr = (map['env'] ?? 'testing').toString().toLowerCase();
-    // Rule: anything other than "production" => testing
-    final env = envStr == 'production' ? AdsEnvironment.production : AdsEnvironment.testing;
+    final env = envStr == 'production'
+        ? AdsEnvironment.production
+        : AdsEnvironment.testing;
 
     final tdi = <String>[];
     final rawTdi = map['testDeviceIds'];
@@ -184,13 +153,19 @@ class _AdsConfig {
     final rawPlacements = map['placements'];
     if (rawPlacements is Map<String, dynamic>) {
       for (final entry in rawPlacements.entries) {
-        plc[entry.key] = _AdPlacementCfg.fromMap(entry.value as Map<String, dynamic>?);
+        plc[entry.key] =
+            _AdPlacementCfg.fromMap(entry.value as Map<String, dynamic>?);
       }
     }
 
-    // Ensure all known placements exist so merging is safe:
+    // Ensure all known placements exist
     for (final k in const [
-      'appOpen','banner','native','interstitial','rewarded','rewardedInterstitial'
+      'appOpen',
+      'banner',
+      'native',
+      'interstitial',
+      'rewarded',
+      'rewardedInterstitial'
     ]) {
       plc.putIfAbsent(k, () => _AdPlacementCfg.fromMap(const {}));
     }
@@ -200,7 +175,6 @@ class _AdsConfig {
 
   _AdPlacementCfg? get(String key) => placements[key];
 
-  /// Apply: normalize env (done) + fill missing IDs with test IDs
   _AdsConfig normalizeEnvAndFillTestIds() {
     for (final entry in placements.entries) {
       entry.value.fillWithTestIds(entry.key);
@@ -209,29 +183,25 @@ class _AdsConfig {
   }
 }
 
-/// Google official test IDs (safe across apps)
+/// ------------------ Google official test IDs ------------------
 class _TestIds {
-  // Banner
   static const bannerAndroid = 'ca-app-pub-3940256099942544/6300978111';
-  static const bannerIos     = 'ca-app-pub-3940256099942544/2934735716';
+  static const bannerIos = 'ca-app-pub-3940256099942544/2934735716';
 
-  // Interstitial
   static const interstitialAndroid = 'ca-app-pub-3940256099942544/1033173712';
-  static const interstitialIos     = 'ca-app-pub-3940256099942544/4411468910';
+  static const interstitialIos = 'ca-app-pub-3940256099942544/4411468910';
 
-  // Rewarded
   static const rewardedAndroid = 'ca-app-pub-3940256099942544/5224354917';
-  static const rewardedIos     = 'ca-app-pub-3940256099942544/1712485313';
+  static const rewardedIos = 'ca-app-pub-3940256099942544/1712485313';
 
-  // Rewarded Interstitial
-  static const rewardedInterstitialAndroid = 'ca-app-pub-3940256099942544/5354046379';
-  static const rewardedInterstitialIos     = 'ca-app-pub-3940256099942544/6978759866';
+  static const rewardedInterstitialAndroid =
+      'ca-app-pub-3940256099942544/5354046379';
+  static const rewardedInterstitialIos =
+      'ca-app-pub-3940256099942544/6978759866';
 
-  // App Open
   static const appOpenAndroid = 'ca-app-pub-3940256099942544/9257395921';
-  static const appOpenIos     = 'ca-app-pub-3940256099942544/5575463023';
+  static const appOpenIos = 'ca-app-pub-3940256099942544/5575463023';
 
-  // Native Advanced
   static const nativeAndroid = 'ca-app-pub-3940256099942544/2247696110';
-  static const nativeIos     = 'ca-app-pub-3940256099942544/3986624511';
+  static const nativeIos = 'ca-app-pub-3940256099942544/3986624511';
 }
