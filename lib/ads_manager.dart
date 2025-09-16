@@ -497,12 +497,13 @@ class AdsManager {
       adUnitId: resolved,
       adKey: key,
       factoryId: factoryId,
+      height: height,
     );
     _nativeWidgets[key] = widget;
     return widget;
   }
 
-  static Widget showNativeTemplate({String key = 'native1', String? adUnitId, TemplateType templateType = TemplateType.medium, double height = 100}) {
+  static Widget showNativeTemplate({String key = 'native1', String? adUnitId, TemplateType templateType = TemplateType.small, double height = 100}) {
     _nativeAds[key]?.dispose();
     _nativeWidgets.remove(key);
 
