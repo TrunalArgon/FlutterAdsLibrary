@@ -496,7 +496,6 @@ class AdsManager {
     final widget = _NativeAdWidget(
       adUnitId: resolved,
       adKey: key,
-      height: height,
       factoryId: factoryId,
     );
     _nativeWidgets[key] = widget;
