@@ -224,11 +224,7 @@ class AdsManager {
   }
 
   /// Shows interstitial only if its cooldown (adsFrequencySec) has elapsed.
-  static void showInterstitial({
-    String key = "inter",
-    String? adUnitId,
-    VoidCallback? onDismissed,
-  }) {
+  static void showInterstitial({String key = "inter", String? adUnitId, VoidCallback? onDismissed}) {
     if (interstitialIds?.adsDisable ?? false) {
       onDismissed?.call();
       return;
@@ -298,12 +294,7 @@ class AdsManager {
   }
 
   /// Shows rewarded only if its cooldown has elapsed (same guard as inter/app-open).
-  static void showRewarded({
-    String key = "rewarded",
-    String? adUnitId,
-    required VoidCallback onReward,
-    VoidCallback? onDismissed,
-  }) {
+  static void showRewarded({String key = "rewarded", String? adUnitId, required VoidCallback onReward, VoidCallback? onDismissed}) {
     if (rewardedIds?.adsDisable ?? false) {
       onDismissed?.call();
       return;
@@ -375,12 +366,7 @@ class AdsManager {
   }
 
   /// Shows rewarded-interstitial only if its cooldown has elapsed.
-  static void showRewardedInterstitial({
-    String key = "rewarded_inter",
-    String? adUnitId,
-    required VoidCallback onReward,
-    VoidCallback? onDismissed,
-  }) {
+  static void showRewardedInterstitial({String key = "rewarded_inter", String? adUnitId, required VoidCallback onReward, VoidCallback? onDismissed}) {
     if (rewardedInterstitialIds?.adsDisable ?? false) {
       onDismissed?.call();
       return;
@@ -454,9 +440,12 @@ class AdsManager {
   }
 
   /// Shows AppOpen only if its cooldown (adsFrequencySec) has elapsed.
-  static void showAppOpenAd() {
+  static void showAppOpenAd({VoidCallback? onLoaded, VoidCallback? onDismissed, VoidCallback? onFailed}) {
     if (_isShowingVideoAd) return;
-    if (appOpenIds?.adsDisable ?? false) return;
+    if (appOpenIds?.adsDisable ?? false) {
+      onDismissed?.call();
+      return;
+    }
 
     // Respect frequency using legacy key for compatibility
     final freq = _freqOrDefault(appOpenIds, 40);
@@ -469,18 +458,21 @@ class AdsManager {
     ad.fullScreenContentCallback = FullScreenContentCallback(
       onAdShowedFullScreenContent: (ad) {
         box.write(ArgumentConstant.isAppOpenStartTime, DateTime.now().millisecondsSinceEpoch);
+        onLoaded?.call();
       },
       onAdDismissedFullScreenContent: (ad) {
         ad.dispose();
         _appOpenAd = null;
         appOpenState = AdsLoadState.idle;
         loadAppOpenAd();
+        onDismissed?.call();
       },
       onAdFailedToShowFullScreenContent: (ad, error) {
         ad.dispose();
         _appOpenAd = null;
         appOpenState = AdsLoadState.idle;
         loadAppOpenAd();
+        onFailed?.call();
       },
     );
 
@@ -511,12 +503,7 @@ class AdsManager {
     return widget;
   }
 
-  static Widget showNativeTemplate({
-    String key = 'native1',
-    String? adUnitId,
-    TemplateType templateType = TemplateType.medium,
-    double height = 100,
-  }) {
+  static Widget showNativeTemplate({String key = 'native1', String? adUnitId, TemplateType templateType = TemplateType.medium, double height = 100}) {
     _nativeAds[key]?.dispose();
     _nativeWidgets.remove(key);
 

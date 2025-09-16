@@ -127,8 +127,7 @@ Scaffold(
 ```dart
 AdsManager.showNativeTemplate(
   templateType: TemplateType.small,
-  onLoaded: () => print("Native Loaded ✅"),
-  onFailed: () => print("Native Failed ❌"),
+  height: 350,
 );
 ```
 
