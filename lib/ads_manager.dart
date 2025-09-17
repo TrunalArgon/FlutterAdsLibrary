@@ -481,7 +481,7 @@ class AdsManager {
   }
 
   /// -------------------- NATIVE --------------------
-  static Widget showNative(
+  /*static Widget showNative(
       String key, {
         String? adUnitId,
         double height = 100,
@@ -501,7 +501,7 @@ class AdsManager {
     );
     _nativeWidgets[key] = widget;
     return widget;
-  }
+  }*/
 
   static Widget showNativeTemplate({String key = 'native1', String? adUnitId, TemplateType templateType = TemplateType.small, double height = 100}) {
     _nativeAds[key]?.dispose();
