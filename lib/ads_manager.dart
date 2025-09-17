@@ -63,9 +63,9 @@ class _Cooldown {
     final difference = current - start;
     final differenceTimeSec = difference ~/ 1000;
 
-    debugPrint("Difference := $difference");
-    debugPrint("StartTime := $start");
-    debugPrint("currentDate := $current");
+    if(kDebugMode) debugPrint("Difference := $difference");
+    if(kDebugMode) debugPrint("StartTime := $start");
+    if(kDebugMode) debugPrint("currentDate := $current");
 
     final ready = differenceTimeSec > thresholdSec;
     if (ready) _writeNow(key); // pre-stamp on allow, same pattern as inter/app open guard
@@ -203,6 +203,12 @@ class AdsManager {
 
   /// -------------------- INTERSTITIAL --------------------
   static Future<void> _loadInterstitial({String key = "inter", String? adUnitId}) async {
+    if (interstitialStates[key] == AdsLoadState.loading) return; // guard
+    interstitialStates[key] = AdsLoadState.loading;
+
+    _interstitials[key]?.dispose();
+    _interstitials[key] = null;
+
     final resolved = _resolveInterstitial(adUnitId);
     if (resolved == null || (interstitialIds?.adsDisable ?? false)) return;
 
@@ -273,6 +279,12 @@ class AdsManager {
 
   /// -------------------- REWARDED --------------------
   static Future<void> _loadRewarded({String key = "rewarded", String? adUnitId}) async {
+    if (rewardedStates[key] == AdsLoadState.loading) return; // guard
+    rewardedStates[key] = AdsLoadState.loading;
+
+    _rewardedAds[key]?.dispose();
+    _rewardedAds[key] = null;
+
     final resolved = _resolveRewarded(adUnitId);
     if (resolved == null || (rewardedIds?.adsDisable ?? false)) return;
 
@@ -345,6 +357,12 @@ class AdsManager {
 
   /// -------------------- REWARDED INTERSTITIAL --------------------
   static Future<void> _loadRewardedInterstitial({String key = "rewarded_inter", String? adUnitId}) async {
+    if (rewardedInterstitialStates[key] == AdsLoadState.loading) return; // guard
+    rewardedInterstitialStates[key] = AdsLoadState.loading;
+
+    _rewardedInterstitials[key]?.dispose();
+    _rewardedInterstitials[key] = null;
+
     final resolved = _resolveRewardedInterstitial(adUnitId);
     if (resolved == null || (rewardedInterstitialIds?.adsDisable ?? false)) return;
 
@@ -417,6 +435,16 @@ class AdsManager {
 
   /// -------------------- APP OPEN --------------------
   static Future<void> loadAppOpenAd({String? adUnitId}) async {
+
+    // 🔒 Guard: if one is loading, skip
+    if (appOpenState == AdsLoadState.loading) return;
+
+    // 🔒 Guard: if one is already loaded and not expired, skip
+    if (_appOpenAd != null && appOpenState == AdsLoadState.loaded) return;
+
+    _appOpenAd?.dispose();
+    _appOpenAd = null;
+
     if (_isShowingVideoAd) return;
     final resolved = _resolveAppOpen(adUnitId);
     if (resolved == null || (appOpenIds?.adsDisable ?? false)) return;
@@ -433,7 +461,7 @@ class AdsManager {
         onAdFailedToLoad: (error) {
           _appOpenAd = null;
           appOpenState = AdsLoadState.failed;
-          debugPrint("AppOpen load error: $error");
+          if(kDebugMode) debugPrint("AppOpen load error: $error");
         },
       ),
     );
@@ -503,7 +531,7 @@ class AdsManager {
     return widget;
   }*/
 
-  static Widget showNativeTemplate({String key = 'native1', String? adUnitId, TemplateType templateType = TemplateType.small, double height = 100}) {
+  static Widget showNativeTemplate({String key = 'native1', String? adUnitId, TemplateType templateType = TemplateType.small, double height = 110}) {
     _nativeAds[key]?.dispose();
     _nativeWidgets.remove(key);
 
@@ -847,7 +875,7 @@ class AdsLifecycleHandler extends WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     AppStateEventNotifier.startListening();
-    AppStateEventNotifier.appStateStream.forEach((appState) {
+    AppStateEventNotifier.appStateStream.listen((appState) {
       if (appState == AppState.foreground) {
         AdsManager.showAppOpenAd();
       }
