@@ -10,8 +10,6 @@ final box = GetStorage();
 class ArgumentConstant {
   static const String isInterstitialStartTime = 'isInterstitialStartTime';      // Interstitial last show ts (ms)
   static const String isAppOpenStartTime = 'isAppOpenStartTime';                // AppOpen last show ts (ms)
-
-  // ✅ Added for Rewarded / Rewarded Interstitial cooldowns
   static const String isRewardedStartTime = 'isRewardedStartTime';              // Rewarded last show ts (ms)
   static const String isRewardedInterStartTime = 'isRewardedInterStartTime';    // Rewarded Interstitial last show ts (ms)
 }
@@ -509,34 +507,19 @@ class AdsManager {
   }
 
   /// -------------------- NATIVE --------------------
-  /*static Widget showNative(
-      String key, {
-        String? adUnitId,
-        double height = 100,
-        String factoryId = 'listTile',
-      }) {
+  static Widget showNativeTemplate({
+    String key = 'native1',
+    String? adUnitId,
+    TemplateType templateType = TemplateType.small,
+    double height = 120,
+  }) {
     _nativeAds[key]?.dispose();
     _nativeWidgets.remove(key);
 
     final resolved = _resolveNative(adUnitId);
-    if (resolved == null || (nativeIds?.adsDisable ?? false)) return const SizedBox.shrink();
-
-    final widget = _NativeAdWidget(
-      adUnitId: resolved,
-      adKey: key,
-      factoryId: factoryId,
-      height: height,
-    );
-    _nativeWidgets[key] = widget;
-    return widget;
-  }*/
-
-  static Widget showNativeTemplate({String key = 'native1', String? adUnitId, TemplateType templateType = TemplateType.small, double height = 110}) {
-    _nativeAds[key]?.dispose();
-    _nativeWidgets.remove(key);
-
-    final resolved = _resolveNative(adUnitId);
-    if (resolved == null || (nativeIds?.adsDisable ?? false)) return const SizedBox.shrink();
+    if (resolved == null || (nativeIds?.adsDisable ?? false)) {
+      return const SizedBox.shrink();
+    }
 
     final widget = _NativeTemplateAdWidget(
       adUnitId: resolved,
@@ -544,6 +527,7 @@ class AdsManager {
       templateType: templateType,
       height: height,
     );
+
     _nativeWidgets[key] = widget;
     return widget;
   }
@@ -673,9 +657,7 @@ class _AdaptiveBannerWidgetState extends State<_AdaptiveBannerWidget> {
   }
 
   void _loadBanner() {
-    AdSize.getCurrentOrientationAnchoredAdaptiveBannerAdSize(
-      MediaQuery.of(context).size.width.truncate(),
-    ).then((size) {
+    AdSize.getCurrentOrientationAnchoredAdaptiveBannerAdSize(MediaQuery.of(context).size.width.truncate()).then((size) {
       if (!mounted || size == null) return;
       _adHeight = size.height.toDouble();
       final banner = BannerAd(
@@ -699,7 +681,7 @@ class _AdaptiveBannerWidgetState extends State<_AdaptiveBannerWidget> {
 
   @override
   void dispose() {
-    _bannerAd?.dispose();
+    if(_bannerAd != null) _bannerAd?.dispose();
     super.dispose();
   }
 
@@ -743,6 +725,10 @@ class _NativeAdWidgetState extends State<_NativeAdWidget> {
   }
 
   void _loadNative() {
+    if(_nativeAd != null) {
+      if(kDebugMode) debugPrint("Some thing Want wrong");
+      return;
+    }
     _nativeAd = NativeAd(
       adUnitId: widget.adUnitId,
       factoryId: widget.factoryId,
@@ -782,12 +768,11 @@ class _NativeTemplateAdWidget extends StatefulWidget {
   final String adKey;
   final TemplateType templateType;
   final double height;
-
   const _NativeTemplateAdWidget({
     required this.adUnitId,
     required this.adKey,
     this.templateType = TemplateType.medium,
-    this.height = 200,
+    this.height = 120,
   });
 
   @override
@@ -797,6 +782,7 @@ class _NativeTemplateAdWidget extends StatefulWidget {
 class _NativeTemplateAdWidgetState extends State<_NativeTemplateAdWidget> {
   NativeAd? _nativeAd;
   AdsLoadState _loadState = AdsLoadState.idle;
+  double _adHeight = 120;
 
   @override
   void initState() {
@@ -809,13 +795,29 @@ class _NativeTemplateAdWidgetState extends State<_NativeTemplateAdWidget> {
       adUnitId: widget.adUnitId,
       request: const AdRequest(),
       listener: NativeAdListener(
-        onAdLoaded: (_) => mounted ? setState(() => _loadState = AdsLoadState.loaded) : null,
-        onAdFailedToLoad: (ad, _) {
+        onAdLoaded: (Ad ad) {
+          // Cast ad to NativeAd
+          final nativeAd = ad as NativeAd;
+
+          // Media height adjustment (optional)
+          double height = widget.height;
+          final media = nativeAd.nativeAdOptions;
+          if (media != null && (media.mediaAspectRatio?.index ?? 0) != 0) {
+            height = MediaQuery.of(context).size.width / (media.mediaAspectRatio?.index ?? 0);
+          }
+
+          if (mounted) {
+            setState(() {
+              _loadState = AdsLoadState.loaded;
+              _adHeight = height;
+            });
+          }
+        },
+        onAdFailedToLoad: (ad, error) {
           ad.dispose();
           if (mounted) setState(() => _loadState = AdsLoadState.failed);
         },
       ),
-      // ✅ Theme these to your UI
       nativeTemplateStyle: NativeTemplateStyle(
         templateType: widget.templateType,
         mainBackgroundColor: Colors.white,
@@ -863,8 +865,10 @@ class _NativeTemplateAdWidgetState extends State<_NativeTemplateAdWidget> {
     if (_loadState != AdsLoadState.loaded || _nativeAd == null) {
       return const SizedBox.shrink();
     }
+
+    // Use SizedBox with calculated height
     return SizedBox(
-      height: widget.height,
+      height: _adHeight,
       child: AdWidget(ad: _nativeAd!),
     );
   }

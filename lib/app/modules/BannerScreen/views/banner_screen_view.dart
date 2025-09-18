@@ -1,4 +1,6 @@
+import 'package:ads_library/CarouselSlider.dart';
 import 'package:ads_library/ads_manager.dart';
+import 'package:ads_library/app/routes/app_pages.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import '../controllers/banner_screen_controller.dart';
@@ -10,21 +12,19 @@ class BannerScreenView extends GetView {
       init: BannerScreenController(),
       builder: (controller) {
         return Scaffold(
-          appBar: AppBar(title: AdsManager.showBanner(isShowAdaptive: false), leading: SizedBox(), leadingWidth: 0, centerTitle: true,),
-          body: Column(
-            mainAxisAlignment: MainAxisAlignment.spaceAround,
-            children: [
+          body: Center(
+            child: Column(
+              children: [
+                ElevatedButton(
+                  onPressed: () => Get.toNamed(Routes.SECOND),
+                  child: Text("Tap"),
+                ),
 
-              AdsManager.showBanner(),
+                SizedBox(height: 50),
 
-
-              AdsManager.showBanner(isShowAdaptive: false),
-
-
-              AdsManager.showBanner(),
-
-              AdsManager.showBanner(isShowAdaptive: false),
-            ],
+                BannerCarousel(bannerItem: controller.dataModel),
+              ],
+            ),
           ),
           bottomNavigationBar: AdsManager.showBanner(),
         );

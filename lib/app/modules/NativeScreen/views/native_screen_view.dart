@@ -1,4 +1,5 @@
 import 'package:ads_library/ads_manager.dart';
+import 'package:ads_library/app/routes/app_pages.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
@@ -20,6 +21,13 @@ class NativeScreenView extends GetView {
                 SizedBox(height: 100),
 
                 AdsManager.showNativeTemplate(templateType: TemplateType.medium, height: 350),
+
+                SizedBox(height: 10),
+
+                ElevatedButton(
+                  onPressed: () => Get.toNamed(Routes.SECOND),
+                  child: Text("Tap"),
+                )
               ],
             ),
           ),

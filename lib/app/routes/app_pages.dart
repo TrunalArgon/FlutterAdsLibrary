@@ -6,6 +6,10 @@ import '../modules/NativeScreen/bindings/native_screen_binding.dart';
 import '../modules/NativeScreen/views/native_screen_view.dart';
 import '../modules/home/bindings/home_binding.dart';
 import '../modules/home/views/home_view.dart';
+import '../modules/second/bindings/second_binding.dart';
+import '../modules/second/views/second_view.dart';
+import '../modules/third/bindings/third_binding.dart';
+import '../modules/third/views/third_view.dart';
 
 part 'app_routes.dart';
 
@@ -29,6 +33,16 @@ class AppPages {
       name: _Paths.NATIVE_SCREEN,
       page: () => NativeScreenView(),
       binding: NativeScreenBinding(),
+    ),
+    GetPage(
+      name: _Paths.SECOND,
+      page: () => const SecondView(),
+      binding: SecondBinding(),
+    ),
+    GetPage(
+      name: _Paths.THIRD,
+      page: () => const ThirdView(),
+      binding: ThirdBinding(),
     ),
   ];
 }

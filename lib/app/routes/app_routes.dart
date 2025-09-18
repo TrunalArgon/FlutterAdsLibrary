@@ -6,6 +6,8 @@ abstract class Routes {
   static const HOME = _Paths.HOME;
   static const BANNER_SCREEN = _Paths.BANNER_SCREEN;
   static const NATIVE_SCREEN = _Paths.NATIVE_SCREEN;
+  static const SECOND = _Paths.SECOND;
+  static const THIRD = _Paths.THIRD;
 }
 
 abstract class _Paths {
@@ -13,4 +15,6 @@ abstract class _Paths {
   static const HOME = '/home';
   static const BANNER_SCREEN = '/banner-screen';
   static const NATIVE_SCREEN = '/native-screen';
+  static const SECOND = '/second';
+  static const THIRD = '/third';
 }

@@ -94,6 +94,14 @@ Each ad type has optional **callbacks** to track load, failure, and close events
 
 ---
 
+### 📂 BannerCarousel(Custom Ad with model parsing)
+
+```dart
+BannerCarousel(bannerItem: controller.dataModel)
+```
+
+---
+
 ### 📂 App Open Ad
 
 ```dart
