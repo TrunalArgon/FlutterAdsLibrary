@@ -94,14 +94,6 @@ Each ad type has optional **callbacks** to track load, failure, and close events
 
 ---
 
-### 📂 BannerCarousel(Custom Ad with model parsing)
-
-```dart
-BannerCarousel(bannerItem: controller.dataModel)
-```
-
----
-
 ### 📂 App Open Ad
 
 ```dart
@@ -119,7 +111,7 @@ AdsManager.showAppOpenAd(
 ### 📂 Banner Ad
 
 ```dart
-AdsManager.showBanner(); // Simple banner
+AdsManager.showBanner(bannerType: BannerType.custom, bannerItem: controller.dataModel); // Simple banner
 AdsManager.showBanner(isShowAdaptive: false); // Non-adaptive
 Scaffold(
   bottomNavigationBar: AdsManager.showBanner(),

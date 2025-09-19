@@ -2,6 +2,11 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:get_storage/get_storage.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
+import 'package:shimmer/shimmer.dart';
+import 'dart:async';
+import 'package:cached_network_image/cached_network_image.dart';
+import 'package:carousel_slider/carousel_slider.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 /// This must exist in your app bootstrap (kept here for clarity)
 final box = GetStorage();
@@ -13,6 +18,9 @@ class ArgumentConstant {
   static const String isRewardedStartTime = 'isRewardedStartTime';              // Rewarded last show ts (ms)
   static const String isRewardedInterStartTime = 'isRewardedInterStartTime';    // Rewarded Interstitial last show ts (ms)
 }
+
+/// -------------------- BANNER TYPE ENUM --------------------
+enum BannerType { google, custom }
 
 /// -------------------- AD UNIT IDS --------------------
 class AdUnitIds {
@@ -61,7 +69,12 @@ class _Cooldown {
     final difference = current - start;
     final differenceTimeSec = difference ~/ 1000;
 
-    if(kDebugMode) debugPrint("Difference := $difference");
+
+    DateTime startTime = DateTime.fromMillisecondsSinceEpoch(start);
+    DateTime currentTime = DateTime.fromMillisecondsSinceEpoch(current);
+    final getDifference = currentTime.difference(startTime).inSeconds;
+
+    if(kDebugMode) debugPrint("Difference := $getDifference");
     if(kDebugMode) debugPrint("StartTime := $start");
     if(kDebugMode) debugPrint("currentDate := $current");
 
@@ -90,6 +103,7 @@ class AdsManager {
   static final Map<String, BannerAd> _banners = {};
   static final Map<String, AdsLoadState> bannerStates = {};
   static final Map<String, Widget> _bannerWidgets = {};
+  static final Map<String, BannerAd> _preloadedBanners = {};
 
   /// -------------------- INTERSTITIAL --------------------
   static final Map<String, InterstitialAd?> _interstitials = {};
@@ -109,10 +123,10 @@ class AdsManager {
   static AdsLoadState appOpenState = AdsLoadState.idle;
   static bool _appOpenInitialized = false;
 
-  /// -------------------- NATIVE --------------------
   static final Map<String, NativeAd?> _nativeAds = {};
   static final Map<String, AdsLoadState> nativeStates = {};
   static final Map<String, Widget> _nativeWidgets = {};
+  static final Map<String, NativeAd> _preloadedNativeAds = {};
 
   /// -------------------- INITIALIZE --------------------
   static Future<void> initialize({
@@ -124,6 +138,8 @@ class AdsManager {
     AdUnitIds? rewardedInterstitial,
     AdUnitIds? appOpen,
     AdUnitIds? native,
+    bool preloadBanners = true,
+    bool preloadNativeAds = true,
   }) async {
     if (_initialized) return;
 
@@ -154,6 +170,16 @@ class AdsManager {
       await _loadRewarded();
     }
 
+    // Preload banners if enabled
+    if (preloadBanners && bannerIds != null && (bannerIds!.adsDisable != true)) {
+      await _preloadBanners();
+    }
+
+    // Preload native ads if enabled
+    if (preloadNativeAds && nativeIds != null && (nativeIds!.adsDisable != true)) {
+      await _preloadNativeAds();
+    }
+
     // 👇 Preload AppOpen once
     if (appOpenIds != null && (appOpenIds!.adsDisable != true)) {
       await loadAppOpenAd();
@@ -163,6 +189,81 @@ class AdsManager {
   }
 
   static bool get isAppOpenInitialized => _appOpenInitialized;
+
+  /// -------------------- PRELOADING METHODS --------------------
+  static Future<void> _preloadBanners() async {
+    final adUnitId = bannerIds?.forTargetPlatform(defaultTargetPlatform);
+    if (adUnitId == null) return;
+
+    // Preload default banner
+    await _preloadSingleBanner('default', adUnitId);
+  }
+
+  static Future<void> _preloadSingleBanner(String key, String adUnitId) async {
+    try {
+      final banner = BannerAd(
+        adUnitId: adUnitId,
+        size: AdSize.banner,
+        request: const AdRequest(),
+        listener: BannerAdListener(
+          onAdLoaded: (_) {
+            bannerStates[key] = AdsLoadState.loaded;
+            if (kDebugMode) debugPrint("Preloaded banner for key: $key");
+          },
+          onAdFailedToLoad: (ad, error) {
+            ad.dispose();
+            bannerStates[key] = AdsLoadState.failed;
+            if (kDebugMode) debugPrint("Failed to preload banner for key: $key, error: $error");
+          },
+        ),
+      );
+
+      bannerStates[key] = AdsLoadState.loading;
+      await banner.load();
+      _preloadedBanners[key] = banner;
+    } catch (e) {
+      if (kDebugMode) debugPrint("Exception preloading banner: $e");
+    }
+  }
+
+  static Future<void> _preloadNativeAds() async {
+    final adUnitId = nativeIds?.forTargetPlatform(defaultTargetPlatform);
+    if (adUnitId == null) return;
+
+    // Preload default native ad
+    await _preloadSingleNativeAd('default', adUnitId);
+  }
+
+  static Future<void> _preloadSingleNativeAd(String key, String adUnitId) async {
+    try {
+      final nativeAd = NativeAd(
+        adUnitId: adUnitId,
+        request: const AdRequest(),
+        listener: NativeAdListener(
+          onAdLoaded: (_) {
+            nativeStates[key] = AdsLoadState.loaded;
+            if (kDebugMode) debugPrint("Preloaded native ad for key: $key");
+          },
+          onAdFailedToLoad: (ad, error) {
+            ad.dispose();
+            nativeStates[key] = AdsLoadState.failed;
+            if (kDebugMode) debugPrint("Failed to preload native ad for key: $key, error: $error");
+          },
+        ),
+        nativeTemplateStyle: NativeTemplateStyle(
+          templateType: TemplateType.small,
+          mainBackgroundColor: Colors.white,
+          cornerRadius: 8.0,
+        ),
+      );
+
+      nativeStates[key] = AdsLoadState.loading;
+      await nativeAd.load();
+      _preloadedNativeAds[key] = nativeAd;
+    } catch (e) {
+      if (kDebugMode) debugPrint("Exception preloading native ad: $e");
+    }
+  }
 
   /// -------------------- HELPERS --------------------
   static String? _resolveBanner(String? adUnitId) =>
@@ -187,14 +288,32 @@ class AdsManager {
       (ids?.adsFrequencySec ?? fallback).clamp(0, 7 * 24 * 60 * 60);
 
   /// -------------------- BANNER --------------------
-  static Widget showBanner({String key = "banner1", String? adUnitId, bool isShowAdaptive = true}) {
+  static Widget showBanner({
+    String key = "banner1",
+    String? adUnitId,
+    bool isShowAdaptive = true,
+    BannerType bannerType = BannerType.google,
+    Map<String, List<Map<String, Object?>>> bannerItem = const {},
+  }) {
     _banners[key]?.dispose();
     _bannerWidgets.remove(key);
 
     final resolved = _resolveBanner(adUnitId);
     if (resolved == null || (bannerIds?.adsDisable ?? false)) return const SizedBox.shrink();
 
-    final widget = _AdaptiveBannerWidget(bannerKey: key, adUnitId: resolved, isShowAdaptive: isShowAdaptive);
+    Widget widget;
+
+    if (bannerType == BannerType.google) {
+      widget = _AdaptiveBannerWidget(
+        bannerKey: key,
+        adUnitId: resolved,
+        isShowAdaptive: isShowAdaptive,
+        usePreloaded: _preloadedBanners.containsKey(key),
+      );
+    } else {
+      widget = BannerCarousel(bannerItem: bannerItem);
+    }
+
     _bannerWidgets[key] = widget;
     return widget;
   }
@@ -327,11 +446,8 @@ class AdsManager {
 
     _isShowingVideoAd = true;
     ad.fullScreenContentCallback = FullScreenContentCallback(
-      onAdShowedFullScreenContent: (ad) {
-        // ✅ Stamp show time for Rewarded cooldown
-        box.write(ArgumentConstant.isRewardedStartTime, DateTime.now().millisecondsSinceEpoch);
-      },
       onAdDismissedFullScreenContent: (ad) {
+        box.write(ArgumentConstant.isRewardedStartTime, DateTime.now().millisecondsSinceEpoch);
         ad.dispose();
         _rewardedAds[key] = null;
         rewardedStates[key] = AdsLoadState.idle;
@@ -405,11 +521,8 @@ class AdsManager {
 
     _isShowingVideoAd = true;
     ad.fullScreenContentCallback = FullScreenContentCallback(
-      onAdShowedFullScreenContent: (ad) {
-        // ✅ Stamp show time for Rewarded Interstitial cooldown
-        box.write(ArgumentConstant.isRewardedInterStartTime, DateTime.now().millisecondsSinceEpoch);
-      },
       onAdDismissedFullScreenContent: (ad) {
+        box.write(ArgumentConstant.isRewardedInterStartTime, DateTime.now().millisecondsSinceEpoch);
         ad.dispose();
         _rewardedInterstitials[key] = null;
         rewardedInterstitialStates[key] = AdsLoadState.idle;
@@ -526,6 +639,7 @@ class AdsManager {
       adKey: key,
       templateType: templateType,
       height: height,
+      usePreloaded: _preloadedNativeAds.containsKey(key),
     );
 
     _nativeWidgets[key] = widget;
@@ -634,12 +748,108 @@ class AdsManager {
   }
 }
 
+/// -------------------- SHIMMER HELPER --------------------
+class _ShimmerHelper {
+  static Widget bannerShimmer({double height = 50, double width = double.infinity}) {
+    return Shimmer.fromColors(
+      baseColor: Colors.grey[300]!,
+      highlightColor: Colors.grey[100]!,
+      child: Container(
+        width: width,
+        height: height,
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(8.0),
+        ),
+      ),
+    );
+  }
+
+  static Widget nativeShimmer({double height = 120}) {
+    return Shimmer.fromColors(
+      baseColor: Colors.grey[300]!,
+      highlightColor: Colors.grey[100]!,
+      child: Container(
+        height: height,
+        padding: const EdgeInsets.all(12.0),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(8.0),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(4.0),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Container(
+                        height: 12,
+                        width: double.infinity,
+                        color: Colors.white,
+                      ),
+                      const SizedBox(height: 4),
+                      Container(
+                        height: 10,
+                        width: 80,
+                        color: Colors.white,
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Container(
+              height: 10,
+              width: double.infinity,
+              color: Colors.white,
+            ),
+            const SizedBox(height: 4),
+            Container(
+              height: 10,
+              width: 120,
+              color: Colors.white,
+            ),
+            const Spacer(),
+            Container(
+              height: 24,
+              width: 80,
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(4.0),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 /// -------------------- ADAPTIVE BANNER --------------------
 class _AdaptiveBannerWidget extends StatefulWidget {
   final String bannerKey;
   final String adUnitId;
   final bool isShowAdaptive;
-  const _AdaptiveBannerWidget({required this.bannerKey, required this.adUnitId, required this.isShowAdaptive});
+  final bool usePreloaded;
+  const _AdaptiveBannerWidget({
+    required this.bannerKey,
+    required this.adUnitId,
+    required this.isShowAdaptive,
+    this.usePreloaded = false,
+  });
 
   @override
   State<_AdaptiveBannerWidget> createState() => _AdaptiveBannerWidgetState();
@@ -648,7 +858,7 @@ class _AdaptiveBannerWidget extends StatefulWidget {
 class _AdaptiveBannerWidgetState extends State<_AdaptiveBannerWidget> {
   BannerAd? _bannerAd;
   AdsLoadState _loadState = AdsLoadState.idle;
-  double _adHeight = 0;
+  double _adHeight = 50;
 
   @override
   void didChangeDependencies() {
@@ -657,9 +867,22 @@ class _AdaptiveBannerWidgetState extends State<_AdaptiveBannerWidget> {
   }
 
   void _loadBanner() {
+    // Check if we can use preloaded banner
+    if (widget.usePreloaded && AdsManager._preloadedBanners.containsKey(widget.bannerKey)) {
+      _bannerAd = AdsManager._preloadedBanners.remove(widget.bannerKey);
+      if (_bannerAd != null) {
+        setState(() => _loadState = AdsLoadState.loaded);
+        AdsManager._banners[widget.bannerKey] = _bannerAd!;
+        return;
+      }
+    }
+
     AdSize.getCurrentOrientationAnchoredAdaptiveBannerAdSize(MediaQuery.of(context).size.width.truncate()).then((size) {
       if (!mounted || size == null) return;
+
+      setState(() => _loadState = AdsLoadState.loading);
       _adHeight = size.height.toDouble();
+
       final banner = BannerAd(
         adUnitId: widget.adUnitId,
         size: widget.isShowAdaptive ? size : AdSize.banner,
@@ -687,12 +910,224 @@ class _AdaptiveBannerWidgetState extends State<_AdaptiveBannerWidget> {
 
   @override
   Widget build(BuildContext context) {
-    if (_loadState != AdsLoadState.loaded || _bannerAd == null) return const SizedBox.shrink();
+    if (_loadState == AdsLoadState.loading) {
+      return _ShimmerHelper.bannerShimmer(height: _adHeight);
+    }
+
+    if (_loadState != AdsLoadState.loaded || _bannerAd == null) {
+      return const SizedBox.shrink();
+    }
+
     return SizedBox(
       width: _bannerAd!.size.width.toDouble(),
       height: _adHeight,
       child: AdWidget(ad: _bannerAd!),
     );
+  }
+}
+
+/// -------------------- MODEL --------------------
+class BannerItem {
+  final String? link;
+  final int isDeepLink;
+  final String? image;
+  final int sliderTime;
+  final String? title;
+  final String? seriesId;
+  final String? offerCode;
+
+  BannerItem({
+    this.link,
+    required this.isDeepLink,
+    this.image,
+    required this.sliderTime,
+    this.title,
+    this.seriesId,
+    this.offerCode,
+  });
+
+  factory BannerItem.fromJson(Map<String, dynamic> json) {
+    return BannerItem(
+      link: json["link"],
+      isDeepLink: json["is_deep_link"] ?? 0,
+      image: json["image"],
+      sliderTime: json["slider_time"] ?? 3,
+      title: json["title"],
+      seriesId: json["series_id"],
+      offerCode: json["offer_code"],
+    );
+  }
+}
+
+/// -------------------- BANNER CAROUSEL --------------------
+class BannerCarousel extends StatefulWidget {
+  final Map<String, List<Map<String, Object?>>> bannerItem;
+  const BannerCarousel({required this.bannerItem});
+
+  @override
+  State<BannerCarousel> createState() => _BannerCarouselState();
+}
+
+class _BannerCarouselState extends State<BannerCarousel> {
+  final CarouselSliderController _carouselController = CarouselSliderController();
+
+  List<BannerItem> bannerList = [];
+  Timer? _autoPlayTimer;
+  int bannerCurrentIndex = 0;
+  int sliderTime = 5; // default
+  bool showShimmer = true; // start shimmer ON
+
+  @override
+  void initState() {
+    super.initState();
+
+    // Parse banners
+    bannerList = (widget.bannerItem["banneras"] as List)
+        .map((e) => BannerItem.fromJson(e))
+        .where((banner) => !(banner.image?.isEmpty ?? true))
+        .toList();
+
+    if (bannerList.isNotEmpty) {
+      sliderTime = bannerList[0].sliderTime;
+      _startAutoPlayTimer();
+    }
+
+    // 🔥 Keep shimmer for at least 100 ms before switching
+    Future.delayed(const Duration(milliseconds: 100), () {
+      if (mounted) {
+        setState(() {
+          showShimmer = false;
+        });
+      }
+    });
+  }
+
+  /// -------------------- TIMER LOGIC --------------------
+  /// -------------------- TIMER LOGIC --------------------
+  void _startAutoPlayTimer() {
+    _autoPlayTimer?.cancel();
+
+    // use one-shot timer instead of periodic
+    _autoPlayTimer = Timer(Duration(seconds: sliderTime), () {
+      _onNextPage();
+    });
+  }
+
+  void _onNextPage() {
+    if (bannerList.isEmpty) return;
+
+    int nextIndex = (bannerCurrentIndex + 1) % bannerList.length;
+
+    // move to next page
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _carouselController.nextPage(
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeInOut,
+      );
+    });
+
+    setState(() {
+      bannerCurrentIndex = nextIndex;
+      sliderTime = bannerList[bannerCurrentIndex].sliderTime; // 🔥 update to slide-specific time
+    });
+
+    _startAutoPlayTimer(); // schedule next one with updated time
+  }
+
+  void _onPageChanged(int index, CarouselPageChangedReason reason) {
+    if (bannerCurrentIndex != index) {
+      setState(() {
+        bannerCurrentIndex = index;
+        sliderTime = bannerList[bannerCurrentIndex].sliderTime; // 🔥 slide-specific time
+      });
+      _startAutoPlayTimer();
+    }
+  }
+
+  /// -------------------- UI --------------------
+  @override
+  Widget build(BuildContext context) {
+    if (showShimmer) {
+      return _ShimmerHelper.bannerShimmer(
+        height: MediaQuery.of(context).size.height * 0.071,
+      );
+    }
+
+    if (bannerList.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    return Column(
+      children: [
+        CarouselSlider.builder(
+          carouselController: _carouselController,
+          itemCount: bannerList.length,
+          options: CarouselOptions(
+            height: MediaQuery.of(context).size.height * 0.071,
+            viewportFraction: 1,
+            autoPlay: false,
+            onPageChanged: _onPageChanged,
+          ),
+          itemBuilder: (context, index, realIndex) {
+            final banner = bannerList[index];
+            return GestureDetector(
+              onTap: () async {
+                if (banner.link != null && banner.link!.isNotEmpty) {
+                  final url = Uri.parse(banner.link!);
+                  if (await canLaunchUrl(url)) {
+                    await launchUrl(url);
+                  }
+                }
+              },
+              child: Container(
+                margin: const EdgeInsets.symmetric(horizontal: 14.0),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(9.0),
+                  child: CachedNetworkImage(
+                    imageUrl: banner.image ?? "",
+                    memCacheWidth: 1200,
+                    memCacheHeight: 200,
+                    filterQuality: FilterQuality.low,
+                    fit: BoxFit.fill,
+                    width: MediaQuery.of(context).size.width,
+                  ),
+                ),
+              ),
+            );
+          },
+        ),
+        if (bannerList.length > 1)
+          Padding(
+            padding: const EdgeInsets.only(top: 5.0),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: List.generate(
+                bannerList.length,
+                    (index) => _buildIndicator(bannerCurrentIndex == index),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildIndicator(bool isActive) {
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 200),
+      margin: const EdgeInsets.symmetric(horizontal: 2.0),
+      height: 6,
+      width: 6,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: isActive ? Colors.blue : const Color(0XFFD9D9D9),
+      ),
+    );
+  }
+
+  @override
+  void dispose() {
+    _autoPlayTimer?.cancel();
+    super.dispose();
   }
 }
 
@@ -702,12 +1137,14 @@ class _NativeAdWidget extends StatefulWidget {
   final String adKey;
   final double height;
   final String factoryId;
+  final bool usePreloaded;
 
   const _NativeAdWidget({
     required this.adUnitId,
     required this.adKey,
     this.height = 100,
     this.factoryId = 'listTile',
+    this.usePreloaded = false,
   });
 
   @override
@@ -725,10 +1162,23 @@ class _NativeAdWidgetState extends State<_NativeAdWidget> {
   }
 
   void _loadNative() {
+    // Check if we can use preloaded native ad
+    if (widget.usePreloaded && AdsManager._preloadedNativeAds.containsKey(widget.adKey)) {
+      _nativeAd = AdsManager._preloadedNativeAds.remove(widget.adKey);
+      if (_nativeAd != null) {
+        setState(() => _loadState = AdsLoadState.loaded);
+        AdsManager._nativeAds[widget.adKey] = _nativeAd;
+        return;
+      }
+    }
+
     if(_nativeAd != null) {
-      if(kDebugMode) debugPrint("Some thing Want wrong");
+      if(kDebugMode) debugPrint("Something went wrong");
       return;
     }
+
+    setState(() => _loadState = AdsLoadState.loading);
+
     _nativeAd = NativeAd(
       adUnitId: widget.adUnitId,
       factoryId: widget.factoryId,
@@ -754,7 +1204,14 @@ class _NativeAdWidgetState extends State<_NativeAdWidget> {
 
   @override
   Widget build(BuildContext context) {
-    if (_loadState != AdsLoadState.loaded || _nativeAd == null) return const SizedBox.shrink();
+    if (_loadState == AdsLoadState.loading) {
+      return _ShimmerHelper.nativeShimmer(height: widget.height);
+    }
+
+    if (_loadState != AdsLoadState.loaded || _nativeAd == null) {
+      return const SizedBox.shrink();
+    }
+
     return SizedBox(
       height: widget.height,
       child: AdWidget(ad: _nativeAd!),
@@ -768,11 +1225,14 @@ class _NativeTemplateAdWidget extends StatefulWidget {
   final String adKey;
   final TemplateType templateType;
   final double height;
+  final bool usePreloaded;
+
   const _NativeTemplateAdWidget({
     required this.adUnitId,
     required this.adKey,
     this.templateType = TemplateType.medium,
     this.height = 120,
+    this.usePreloaded = false,
   });
 
   @override
@@ -791,6 +1251,18 @@ class _NativeTemplateAdWidgetState extends State<_NativeTemplateAdWidget> {
   }
 
   void _loadNativeTemplate() {
+    // Check if we can use preloaded native ad
+    if (widget.usePreloaded && AdsManager._preloadedNativeAds.containsKey(widget.adKey)) {
+      _nativeAd = AdsManager._preloadedNativeAds.remove(widget.adKey);
+      if (_nativeAd != null) {
+        setState(() => _loadState = AdsLoadState.loaded);
+        AdsManager._nativeAds[widget.adKey] = _nativeAd;
+        return;
+      }
+    }
+
+    setState(() => _loadState = AdsLoadState.loading);
+
     _nativeAd = NativeAd(
       adUnitId: widget.adUnitId,
       request: const AdRequest(),
@@ -862,6 +1334,10 @@ class _NativeTemplateAdWidgetState extends State<_NativeTemplateAdWidget> {
 
   @override
   Widget build(BuildContext context) {
+    if (_loadState == AdsLoadState.loading) {
+      return _ShimmerHelper.nativeShimmer(height: widget.height);
+    }
+
     if (_loadState != AdsLoadState.loaded || _nativeAd == null) {
       return const SizedBox.shrink();
     }

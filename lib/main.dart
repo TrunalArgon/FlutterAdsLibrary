@@ -1,8 +1,8 @@
 import 'dart:convert';
-// import 'package:ads_library/firebase_options.dart';
-// import 'package:firebase_core/firebase_core.dart';
-// import 'package:firebase_crashlytics/firebase_crashlytics.dart';
-// import 'package:flutter/foundation.dart';
+import 'package:ads_library/firebase_options.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_crashlytics/firebase_crashlytics.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'ads_kit.dart';
@@ -11,22 +11,22 @@ import 'app/routes/app_pages.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
-  //
-  // // Pass all uncaught errors to Crashlytics.
-  // FlutterError.onError = FirebaseCrashlytics.instance.recordFlutterFatalError;
-  //
-  // // Capture errors in async code
-  // PlatformDispatcher.instance.onError = (error, stack) {
-  //   FirebaseCrashlytics.instance.recordError(error, stack, fatal: true);
-  //   return true;
-  // };
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+
+  // Pass all uncaught errors to Crashlytics.
+  FlutterError.onError = FirebaseCrashlytics.instance.recordFlutterFatalError;
+
+  // Capture errors in async code
+  PlatformDispatcher.instance.onError = (error, stack) {
+    FirebaseCrashlytics.instance.recordError(error, stack, fatal: true);
+    return true;
+  };
 
 
   // ✅ Static ads config JSON
   final adsConfig = {
-    "env": "production",
-    "testDeviceIds": ["F777F38A1A80E262DDC67F1B141E88B3"],
+    "env": "testing",
+    "testDeviceIds": ["F777F38A1A80E262DDC67F1B141E88B3", "227AF926BF64372704D163FE82F8BABB"],
     "placements": {
       "appOpen": {
         "android": "",

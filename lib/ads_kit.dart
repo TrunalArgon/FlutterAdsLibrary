@@ -35,6 +35,8 @@ Future<void> _initializeAdsFromConfig(_AdsConfig cfg) async {
     interstitial: cfg.get('interstitial')?.toAdUnitIds(),
     rewarded: cfg.get('rewarded')?.toAdUnitIds(),
     rewardedInterstitial: cfg.get('rewardedInterstitial')?.toAdUnitIds(),
+    preloadBanners: true,
+    preloadNativeAds: true,
   );
 }
 

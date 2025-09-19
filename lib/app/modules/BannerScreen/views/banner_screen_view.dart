@@ -1,4 +1,3 @@
-import 'package:ads_library/CarouselSlider.dart';
 import 'package:ads_library/ads_manager.dart';
 import 'package:ads_library/app/routes/app_pages.dart';
 import 'package:flutter/material.dart';
@@ -14,6 +13,7 @@ class BannerScreenView extends GetView {
         return Scaffold(
           body: Center(
             child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 ElevatedButton(
                   onPressed: () => Get.toNamed(Routes.SECOND),
@@ -22,11 +22,11 @@ class BannerScreenView extends GetView {
 
                 SizedBox(height: 50),
 
-                BannerCarousel(bannerItem: controller.dataModel),
+                AdsManager.showBanner(bannerType: BannerType.custom, bannerItem: controller.dataModel),
               ],
             ),
           ),
-          bottomNavigationBar: AdsManager.showBanner(),
+          bottomNavigationBar: AdsManager.showBanner(adUnitId: "ca-app-pub-3940256099942544/9214589741"),
         );
       },
     );

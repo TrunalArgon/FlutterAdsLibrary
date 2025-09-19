@@ -23,10 +23,10 @@ class SecondView extends GetView<SecondController> {
 
           SizedBox(height: 100),
 
-          AdsManager.showNativeTemplate(templateType: TemplateType.small),
+          AdsManager.showNativeTemplate(templateType: TemplateType.small, adUnitId: "ca-app-pub-3940256099942544/2247696110"),
         ],
       ),
-
+      bottomNavigationBar: AdsManager.showBanner(isShowAdaptive: false, adUnitId: "ca-app-pub-3940256099942544/9214589741"),
     );
   }
 }

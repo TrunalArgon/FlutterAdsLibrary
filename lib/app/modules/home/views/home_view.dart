@@ -47,7 +47,12 @@ class HomeView extends GetView {
 
               /// ---------------- Rewarded Interstitial ----------------
               ElevatedButton(
-                onPressed: () => AdsManager.showRewardedInterstitialWithCallbacks(onLoaded: () => print("Ad Loaded ✅"), onReward: () => print("User Rewarded 🎉"), onDismissed: () => print("Ad Closed 👋"), onFailed: () => print("Ad Failed ❌")),
+                onPressed: () => AdsManager.showRewardedInterstitialWithCallbacks(
+                  onReward: () {},
+                  onDismissed: () {},
+                  onFailed: () {},
+                  onLoaded: () {},
+                ),
                 child: Text("Rewarded Interstitial"),
               ),
             ],
