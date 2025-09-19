@@ -37,6 +37,7 @@ dependencies:
   get: ^4.7.2
   get_storage: ^2.1.1
   google_mobile_ads: ^5.2.0
+  clever_ads_solutions: ^0.9.0
   carousel_slider: ^5.1.1
   cached_network_image: ^3.4.1
   url_launcher: ^6.2.2

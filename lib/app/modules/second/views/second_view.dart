@@ -1,32 +1,34 @@
 import 'package:ads_library/ads_manager.dart';
 import 'package:ads_library/app/routes/app_pages.dart';
 import 'package:flutter/material.dart';
-
 import 'package:get/get.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
-
 import '../controllers/second_controller.dart';
 
-class SecondView extends GetView<SecondController> {
-  const SecondView({super.key});
+class SecondView extends GetView {
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: Column(
-        children: [
-          Center(
-            child: ElevatedButton(
-              onPressed: () => Get.toNamed(Routes.THIRD),
-              child: Text("Tap"),
-            ),
+    return GetBuilder<SecondController>(
+      init: SecondController(),
+      builder: (controller) {
+        return Scaffold(
+          body: Column(
+            children: [
+              Center(
+                child: ElevatedButton(
+                  onPressed: () => Get.toNamed(Routes.THIRD),
+                  child: Text("Tap"),
+                ),
+              ),
+
+              SizedBox(height: 100),
+
+              AdsManager.showNativeTemplate(templateType: TemplateType.small, adUnitId: "ca-app-pub-3940256099942544/2247696110"),
+            ],
           ),
-
-          SizedBox(height: 100),
-
-          AdsManager.showNativeTemplate(templateType: TemplateType.small, adUnitId: "ca-app-pub-3940256099942544/2247696110"),
-        ],
-      ),
-      bottomNavigationBar: AdsManager.showBanner(isShowAdaptive: false, adUnitId: "ca-app-pub-3940256099942544/9214589741"),
+          bottomNavigationBar: AdsManager.showBanner(isShowAdaptive: false, adUnitId: "ca-app-pub-3940256099942544/9214589741"),
+        );
+      },
     );
   }
 }

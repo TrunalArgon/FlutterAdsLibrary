@@ -1,24 +1,22 @@
 import 'package:flutter/material.dart';
-
 import 'package:get/get.dart';
-
 import '../controllers/third_controller.dart';
 
-class ThirdView extends GetView<ThirdController> {
-  const ThirdView({super.key});
+class ThirdView extends GetView {
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('ThirdView'),
-        centerTitle: true,
-      ),
-      body: const Center(
-        child: Text(
-          'ThirdView is working',
-          style: TextStyle(fontSize: 20),
-        ),
-      ),
+    return GetBuilder<ThirdController>(
+      init: ThirdController(),
+      builder: (controller) {
+        return Scaffold(
+          appBar: AppBar(title: Text('CAS TEST'), centerTitle: true),
+          body: Column(
+            children: [
+
+            ],
+          ),
+        );
+      },
     );
   }
 }

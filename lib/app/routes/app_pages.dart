@@ -36,12 +36,12 @@ class AppPages {
     ),
     GetPage(
       name: _Paths.SECOND,
-      page: () => const SecondView(),
+      page: () => SecondView(),
       binding: SecondBinding(),
     ),
     GetPage(
       name: _Paths.THIRD,
-      page: () => const ThirdView(),
+      page: () => ThirdView(),
       binding: ThirdBinding(),
     ),
   ];

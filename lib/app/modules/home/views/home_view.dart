@@ -1,5 +1,6 @@
 import 'package:ads_library/ads_manager.dart';
 import 'package:ads_library/app/routes/app_pages.dart';
+import 'package:ads_library/test-CAS.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import '../controllers/home_controller.dart';
@@ -47,13 +48,14 @@ class HomeView extends GetView {
 
               /// ---------------- Rewarded Interstitial ----------------
               ElevatedButton(
-                onPressed: () => AdsManager.showRewardedInterstitialWithCallbacks(
-                  onReward: () {},
-                  onDismissed: () {},
-                  onFailed: () {},
-                  onLoaded: () {},
-                ),
+                onPressed: () => AdsManager.showRewardedInterstitialWithCallbacks(onReward: () {}, onDismissed: () {}, onFailed: () {}, onLoaded: () {}),
                 child: Text("Rewarded Interstitial"),
+              ),
+
+              /// ---------------- CAS TEST ----------------
+              ElevatedButton(
+                onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (context) => HomeScreen())),
+                child: Text("CAS TEST"),
               ),
             ],
           ),
